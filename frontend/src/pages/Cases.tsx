@@ -96,10 +96,17 @@ export default function Cases() {
                         >
                             <option value="ALL">All Lifecycle States</option>
                             <option value="OPEN">OPEN</option>
-                            <option value="DETECTED">DETECTED</option>
-                            <option value="IN_PROGRESS">IN_PROGRESS</option>
-                            <option value="RESOLVED">RESOLVED</option>
+                            <option value="ASSESSED">ASSESSED</option>
+                            <option value="DIAGNOSING">DIAGNOSING</option>
+                            <option value="RECOMMENDING">RECOMMENDING</option>
+                            <option value="POLICY_EVALUATED">POLICY_EVALUATED</option>
+                            <option value="ESCALATED">ESCALATED</option>
                             <option value="WAITING">WAITING</option>
+                            <option value="PENDING_VERIFICATION">PENDING_VERIFICATION</option>
+                            <option value="FULLY_RECOVERED">FULLY_RECOVERED</option>
+                            <option value="PARTIALLY_RECOVERED">PARTIALLY_RECOVERED</option>
+                            <option value="CLOSED_NOT_RECOVERED">CLOSED_NOT_RECOVERED</option>
+                            <option value="STOPPED">STOPPED</option>
                         </select>
                     </div>
 

@@ -20,9 +20,27 @@ export async function fetchCaseDetail(caseId: string) {
     return res.json();
 }
 
+/** Full 7-stage lifecycle snapshot (nested risk_assessment / diagnosis /
+ *  ml_shadow_prediction / recommendation / policy_decision / execution_record /
+ *  outcome / audit_history). */
+export async function fetchCaseSnapshot(caseId: string) {
+    const res = await fetch(`${BASE_URL}/system/cases/${caseId}`);
+    if (!res.ok) throw new Error("Failed to fetch case snapshot");
+    return res.json();
+}
+
 export async function fetchCaseAudit(caseId: string) {
     const res = await fetch(`${BASE_URL}/cases/${caseId}/audit`);
     if (!res.ok) throw new Error("Failed to fetch case audit");
+    return res.json();
+}
+
+export async function advanceCase(caseId: string) {
+    const res = await fetch(`${BASE_URL}/cases/${caseId}/advance`, {
+        method: 'POST',
+        headers: { 'X-API-Key': 'test-api-key' },
+    });
+    if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
 
