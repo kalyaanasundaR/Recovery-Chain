@@ -68,8 +68,23 @@ class AuditModel(Base):
 
 class IdempotencyRecord(Base):
     __tablename__ = 'idempotency_keys'
-    
+
     idempotency_key = Column(String, primary_key=True)
     execution_record = Column(JSON, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class ExecutionAttemptModel(Base):
+    """Append-only ledger of every recovery action the system has attempted for a
+    case. Used by the Policy Engine to enforce retry / cooldown / contact limits
+    against real history instead of a proxy on event counts."""
+    __tablename__ = "execution_attempts"
+
+    id = Column(String, primary_key=True)
+    case_id = Column(String, ForeignKey("recovery_cases.case_id"), index=True, nullable=False)
+    action_type = Column(String, nullable=False)
+    channel = Column(String, nullable=True)          # "payment" | "communication"
+    status = Column(String, nullable=False)          # ExecutionStatus value
+    idempotency_key = Column(String, index=True, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 

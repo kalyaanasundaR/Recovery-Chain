@@ -19,36 +19,37 @@ class IOutcomeVerification:
         raise NotImplementedError
 
 class MockOutcomeVerificationAdapter(IOutcomeVerification):
+    """SIMULATED settlement source.
+
+    Explicit keywords in `external_reference` ("full" / "partial" / "fail" /
+    "pending") force a specific outcome — used by tests. For any other reference
+    (e.g. a real execution id) the outcome is derived deterministically from the
+    case id, so a genuine execution always reconciles to a terminal result
+    instead of hanging in PENDING forever.
+    """
+
     def verify(self, case: RecoveryCase, external_reference: str) -> dict:
-        """
-        SIMULATED adapter.
-        We will simulate behavior using the external_reference string for testing.
-        """
-        if "full" in external_reference:
-            return {
-                "status": RecoveryOutcomeStatus.FULLY_RECOVERED,
-                "amount": case.amount_at_risk.amount,
-                "source": "SIMULATED_STRIPE_MOCK"
-            }
-        elif "partial" in external_reference:
-            # Simulated partial payment
-            return {
-                "status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
-                "amount": max(0.01, case.amount_at_risk.amount / 2),
-                "source": "SIMULATED_STRIPE_MOCK"
-            }
-        elif "fail" in external_reference:
-            return {
-                "status": RecoveryOutcomeStatus.NOT_RECOVERED,
-                "amount": 0.0,
-                "source": "SIMULATED_STRIPE_MOCK"
-            }
-        else:
-            return {
-                "status": RecoveryOutcomeStatus.PENDING_VERIFICATION,
-                "amount": 0.0,
-                "source": "SIMULATED_STRIPE_MOCK"
-            }
+        ref = (external_reference or "").lower()
+        src = "SIMULATED_STRIPE_MOCK"
+
+        if "full" in ref:
+            return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": case.amount_at_risk.amount, "source": src}
+        if "partial" in ref:
+            return {"status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
+                    "amount": max(0.01, case.amount_at_risk.amount / 2), "source": src}
+        if "fail" in ref:
+            return {"status": RecoveryOutcomeStatus.NOT_RECOVERED, "amount": 0.0, "source": src}
+        if "pending" in ref:
+            return {"status": RecoveryOutcomeStatus.PENDING_VERIFICATION, "amount": 0.0, "source": src}
+
+        # Deterministic sandbox outcome: ~70% full, ~20% partial, ~10% none.
+        bucket = int(__import__("hashlib").sha1(case.case_id.encode()).hexdigest(), 16) % 10
+        if bucket < 7:
+            return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": case.amount_at_risk.amount, "source": src}
+        if bucket < 9:
+            return {"status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
+                    "amount": max(0.01, case.amount_at_risk.amount / 2), "source": src}
+        return {"status": RecoveryOutcomeStatus.NOT_RECOVERED, "amount": 0.0, "source": src}
 
 class VerificationEngine:
     def __init__(self, adapter: IOutcomeVerification = MockOutcomeVerificationAdapter()):

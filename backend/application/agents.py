@@ -47,12 +47,39 @@ class CheckoutRecoveryAgent(IRecoveryAgent):
 class SubscriptionRecoveryAgent(IRecoveryAgent):
     def can_handle(self, action: ActionType) -> bool:
         return action in [ActionType.RETRY_BILLING, ActionType.SEND_SUBSCRIPTION_REMINDER]
-        
+
     def prepare_execution(self, case: RecoveryCase, action: ActionType) -> dict:
         return {
             "customer_id": case.customer_id,
             "action": action.value,
             "agent_type": "SubscriptionRecoveryAgent"
+        }
+
+class ReceivablesRecoveryAgent(IRecoveryAgent):
+    def can_handle(self, action: ActionType) -> bool:
+        return action in [ActionType.SEND_INVOICE_REMINDER, ActionType.SEND_PAYMENT_LINK,
+                          ActionType.ESCALATE_COLLECTION]
+
+    def prepare_execution(self, case: RecoveryCase, action: ActionType) -> dict:
+        return {
+            "customer_id": case.customer_id,
+            "amount": case.amount_at_risk.amount,
+            "currency": case.amount_at_risk.currency,
+            "reference_id": case.reference_id,
+            "action": action.value,
+            "agent_type": "ReceivablesRecoveryAgent",
+        }
+
+class PromiseRecoveryAgent(IRecoveryAgent):
+    def can_handle(self, action: ActionType) -> bool:
+        return action in [ActionType.SEND_PROMISE_REMINDER, ActionType.REQUEST_NEW_COMMITMENT]
+
+    def prepare_execution(self, case: RecoveryCase, action: ActionType) -> dict:
+        return {
+            "customer_id": case.customer_id,
+            "reference_id": case.reference_id,
+            "action": action.value,
+            "agent_type": "PromiseRecoveryAgent",
         }
 
 class AgentOrchestrator:
@@ -61,7 +88,9 @@ class AgentOrchestrator:
         self.agents = [
             PaymentRecoveryAgent(),
             CheckoutRecoveryAgent(),
-            SubscriptionRecoveryAgent()
+            SubscriptionRecoveryAgent(),
+            ReceivablesRecoveryAgent(),
+            PromiseRecoveryAgent(),
         ]
         
     def _is_policy_fresh(self, case: RecoveryCase) -> bool:
@@ -76,7 +105,18 @@ class AgentOrchestrator:
         # In reality, also check if case amount changed, etc.
         return True
         
-    def execute(self, case: RecoveryCase, requested_action: ActionType) -> Optional[ExecutionRecord]:
+    def execute(self, case: RecoveryCase, requested_action: ActionType, repo=None) -> Optional[ExecutionRecord]:
+        # 0. Idempotency — replaying the same authorized action is a no-op.
+        if repo is not None:
+            _idem = f"{case.case_id}_{getattr(requested_action, 'value', requested_action)}_" + \
+                    (case.policy_decision.decision_id if case.policy_decision else "NONE")
+            try:
+                cached = repo.get_execution_record_by_key(_idem)
+            except Exception:
+                cached = None
+            if cached:
+                return ExecutionRecord(**cached)
+
         # 1. Verify Policy Exists and is PERMITTED
         if not case.policy_decision or case.policy_decision.status != PolicyDecisionStatus.PERMITTED:
             return ExecutionRecord(
@@ -173,7 +213,7 @@ class AgentOrchestrator:
             adapter_result = {"error": str(e)}
             status = ExecutionStatus.FAILED
             
-        return ExecutionRecord(
+        record = ExecutionRecord(
             execution_id=f"exec_{uuid.uuid4().hex[:8]}",
             action_type=requested_action,
             agent_type=selected_agent.__class__.__name__,
@@ -185,3 +225,16 @@ class AgentOrchestrator:
             adapter_used=self.adapter.__class__.__name__,
             result_metadata=adapter_result
         )
+
+        # Persist to the idempotency store + append-only attempt ledger.
+        if repo is not None:
+            try:
+                repo.record_execution_attempt(
+                    case_id=case.case_id, action_type=requested_action.value,
+                    status=status.value, idempotency_key=idem_key,
+                )
+                repo.save_idempotency_key(idem_key, record.model_dump(mode="json"))
+            except Exception:
+                pass
+
+        return record

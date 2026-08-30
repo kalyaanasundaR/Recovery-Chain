@@ -19,7 +19,7 @@ from infrastructure.db import get_db, engine, Base
 from infrastructure.redis_client import get_redis_client
 from infrastructure.repositories import SqlAlchemyCaseRepository, SqlAlchemyAuditRecorder
 from application.case_engine import CaseEngine, DuplicateEventException
-from domain.models import RevenueEvent, Money
+from domain.models import RevenueEvent, Money, CaseState
 from api.schemas import IngestEventRequest, IngestEventResponse, CaseResponse, AuditResponse, RiskAssessmentResponse, DiagnosisResponse, RecoveryPredictionResponse, ActionRecommendationResponse, PolicyDecisionResponse, ExecutionRecordResponse, RecoveryOutcomeResponse, VerifyOutcomeRequest, DashboardMetricsResponse, BatchIngestRequest, BatchIngestItemResult, BatchIngestResponse, AdvanceCaseResponse
 
 # ... (skipping to line 75) ...
@@ -181,6 +181,22 @@ def advance_case(case_id: str, dataset_id: Optional[str] = None, db: Session = D
         policy_status=case.policy_decision.status.value if case.policy_decision else None,
         policy_reason=case.policy_decision.reason if case.policy_decision else None,
     )
+
+
+@app.post("/cases/{case_id}/stop")
+def stop_case(case_id: str, reason: str = "manual_stop", db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    """Halt all automated recovery on a case (customer opt-out, dispute, manual hold)."""
+    repo = SqlAlchemyCaseRepository(db)
+    audit = SqlAlchemyAuditRecorder(db)
+    case = repo.get_by_id(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    old = case.current_state.value if hasattr(case.current_state, "value") else str(case.current_state)
+    case.current_state = CaseState.STOPPED
+    audit.log_transition(case_id=case.case_id, from_state=old, to_state=CaseState.STOPPED.value,
+                         evidence={"action": "stop", "reason": reason})
+    repo.save(case)
+    return {"status": "success", "case_id": case_id, "current_state": "STOPPED", "reason": reason}
 
 
 @app.get("/cases/{case_id}", response_model=CaseResponse)
@@ -473,8 +489,12 @@ def policy_check(case_id: str, db: Session = Depends(get_db)):
     from domain.models import CaseState
     
     engine = DeterministicPolicyEngine()
-    decision = engine.evaluate(case)
-    
+    try:
+        _ctx = repo.get_policy_context(case_id)
+    except Exception:
+        _ctx = None
+    decision = engine.evaluate(case, context=_ctx)
+
     case.policy_decision = decision
     case.current_state = CaseState.POLICY_EVALUATED
     
@@ -536,8 +556,8 @@ def execute_action(case_id: str, db: Session = Depends(get_db), api_key: str = D
     requested_action = case.recommendation.top_candidate.action_type
     
     orchestrator = AgentOrchestrator()
-    record = orchestrator.execute(case, requested_action)
-    
+    record = orchestrator.execute(case, requested_action, repo=repo)
+
     case.execution_record = record
     
     if record.status == ExecutionStatus.COMPLETED_SIMULATED:

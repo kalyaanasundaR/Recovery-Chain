@@ -132,7 +132,13 @@ class CasePipelineService:
 
     def policy_check(self, case: RecoveryCase) -> RecoveryCase:
         from application.policy_engine import DeterministicPolicyEngine
-        decision = DeterministicPolicyEngine().evaluate(case)
+        context = None
+        if hasattr(self.repo, "get_policy_context"):
+            try:
+                context = self.repo.get_policy_context(case.case_id)
+            except Exception:
+                context = None
+        decision = DeterministicPolicyEngine().evaluate(case, context=context)
         case.policy_decision = decision
         case.current_state = CaseState.POLICY_EVALUATED
         self.audit.log_transition(
@@ -143,6 +149,9 @@ class CasePipelineService:
 
     # -- full run ------------------------------------------------------------
     def advance(self, case: RecoveryCase, dataset_id: Optional[str] = None) -> RecoveryCase:
+        if case.current_state in (CaseState.STOPPED, CaseState.FULLY_RECOVERED,
+                                  CaseState.CLOSED_NOT_RECOVERED):
+            return case
         self.assess_risk(case)
         self.diagnose(case)
         self.predict(case, dataset_id=dataset_id)
