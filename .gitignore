@@ -1,0 +1,56 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ---- Virtual environments ----
+venv/
+.venv/
+env/
+ENV/
+_verify_venv/
+
+# ---- Node / frontend build ----
+node_modules/
+frontend/dist/
+dist/
+build/
+
+# ---- Portable toolchains (downloaded, not source) ----
+node_extracted/
+
+# ---- Databases (runtime state, regenerated) ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- ML artifacts (generated; reproducible via training scripts) ----
+backend/ml/models/registry/
+*.joblib
+
+# ---- Large / throwaway datasets (JSON metadata & manifests stay tracked) ----
+/dataset/
+backend/dataset/
+backend/evaluation/datasets/*.csv
+backend/*.csv
+
+# ---- Secrets / local env (*.env.example stays tracked) ----
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+*.log
