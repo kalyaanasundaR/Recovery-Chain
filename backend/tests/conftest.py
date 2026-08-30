@@ -16,6 +16,12 @@ _TEST_DB_URL = os.getenv(
 )
 os.environ["DATABASE_URL"] = _TEST_DB_URL
 
+# The ML quality gate (ml_training) would reject the deliberately tiny fixtures
+# that plumbing tests train. Disable it by default for the suite; the dedicated
+# gate test re-enables it explicitly.
+os.environ.setdefault("ML_MIN_ROC_AUC", "0.0")
+os.environ.setdefault("ML_MIN_TEST_ROWS", "0")
+
 if _TEST_DB_URL.startswith("sqlite:///") and os.path.exists(os.path.abspath(_TEST_DB_FILE)):
     try:
         os.remove(os.path.abspath(_TEST_DB_FILE))
