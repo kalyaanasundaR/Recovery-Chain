@@ -32,7 +32,9 @@ node_extracted/
 *.sqlite3
 
 # ---- ML artifacts (generated; reproducible via training scripts) ----
+ml/models/registry/
 backend/ml/models/registry/
+**/ml/models/registry/
 *.joblib
 
 # ---- Large / throwaway datasets (JSON metadata & manifests stay tracked) ----
