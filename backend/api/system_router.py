@@ -596,7 +596,7 @@ def list_system_policy_decisions(
             decision_status=pol.get("status", "UNKNOWN"),
             policy_version=pol.get("policy_version"),
             reason=pol.get("reason"),
-            candidate_action=c.recommendation.get("top_candidate", {}).get("action_type") if c.recommendation else None,
+            candidate_action=((c.recommendation or {}).get("top_candidate") or {}).get("action_type"),
             rules_evaluated_count=len(pol.get("rules_evaluated", [])),
             failed_rules_count=len(pol.get("failed_rules", [])),
             timestamp=pol.get("timestamp")
