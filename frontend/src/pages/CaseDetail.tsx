@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchCaseDetail, fetchCaseAudit, submitHumanReview } from '../api/client';
+import { fetchCaseSnapshot, fetchCaseAudit, submitHumanReview, advanceCase } from '../api/client';
 import { 
     ArrowLeft, 
     UserCheck, 
@@ -26,13 +26,22 @@ export default function CaseDetail() {
         if (!caseId) return;
         setLoading(true);
         setError('');
-        Promise.all([fetchCaseDetail(caseId), fetchCaseAudit(caseId)])
+        Promise.all([fetchCaseSnapshot(caseId), fetchCaseAudit(caseId)])
             .then(([caseData, auditData]) => {
                 setData(caseData);
-                setAudit(auditData || []);
+                setAudit(auditData || caseData.audit_history || []);
             })
             .catch(e => setError(e.message || 'Failed to fetch case data'))
             .finally(() => setLoading(false));
+    };
+
+    const [advancing, setAdvancing] = useState(false);
+    const handleAdvance = async () => {
+        if (!caseId) return;
+        setAdvancing(true);
+        try { await advanceCase(caseId); await loadCase(); }
+        catch (e: any) { alert(e.message || 'Failed to advance case'); }
+        setAdvancing(false);
     };
 
     useEffect(() => {
@@ -87,7 +96,11 @@ export default function CaseDetail() {
                         <div>
                             <div className="flex items-center gap-2.5">
                                 <h2 className="text-xl font-bold font-mono text-slate-100">{data.case_id}</h2>
-                                <StatusBadge status={data.risk_level || 'DETECTED'} variant="risk" size="md" />
+                                <StatusBadge status={data.risk_assessment?.risk_level || 'DETECTED'} variant="risk" size="md" />
+                                <button onClick={handleAdvance} disabled={advancing}
+                                    className="ml-2 text-[11px] font-mono font-semibold px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white">
+                                    {advancing ? 'Advancing…' : 'Run pipeline'}
+                                </button>
                             </div>
                             <p className="text-xs font-mono text-slate-400 mt-1">
                                 Customer: <span className="text-slate-200">{data.customer_id}</span> &bull; 
@@ -145,18 +158,18 @@ export default function CaseDetail() {
                         <div className="space-y-2 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 font-mono text-xs">
                             <div className="flex justify-between items-center">
                                 <span className="text-slate-400">Calculated Risk Score:</span>
-                                <span className="font-bold text-rose-400">{data.risk_assessment?.score ?? data.risk_score ?? 'N/A'}/100</span>
+                                <span className="font-bold text-rose-400">{data.risk_assessment ? Number(data.risk_assessment.score).toFixed(3) : 'N/A'}</span>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-slate-400">Severity Tier:</span>
-                                <StatusBadge status={data.risk_assessment?.severity || data.risk_level || 'UNKNOWN'} variant="risk" />
+                                <StatusBadge status={data.risk_assessment?.risk_level || 'UNKNOWN'} variant="risk" />
                             </div>
-                            {data.risk_assessment?.factors && data.risk_assessment.factors.length > 0 && (
+                            {data.risk_assessment?.primary_risk_signals && (
                                 <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
-                                    <span className="text-slate-500 block mb-1">Trigger Factors:</span>
+                                    <span className="text-slate-500 block mb-1">Risk Signals:</span>
                                     <ul className="list-disc list-inside space-y-0.5">
-                                        {data.risk_assessment.factors.map((f: string, i: number) => (
-                                            <li key={i}>{f}</li>
+                                        {Object.entries(data.risk_assessment.primary_risk_signals).map(([k, v]) => (
+                                            <li key={k}>{k}: {String(v)}</li>
                                         ))}
                                     </ul>
                                 </div>
@@ -168,22 +181,22 @@ export default function CaseDetail() {
                     <TimelineNode 
                         step="3"
                         title="Diagnosis & Candidate Action Recommendation"
-                        status={data.recommendation || data.recommended_action ? "COMPLETED" : "PENDING"}
+                        status={data.diagnosis || data.recommendation ? "COMPLETED" : "PENDING"}
                         source="Case Engine Diagnostic & Action Selection"
                     >
-                        {(data.recommendation || data.recommended_action) ? (
+                        {(data.diagnosis || data.recommendation) ? (
                             <div className="space-y-2.5 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 font-mono text-xs">
                                 <div className="flex justify-between items-center">
+                                    <span className="text-slate-400">Root Cause:</span>
+                                    <span className="font-bold text-slate-200">{data.diagnosis?.cause_category || 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
                                     <span className="text-slate-400">Recommended Action:</span>
-                                    <span className="font-bold text-blue-400">{data.recommendation?.action_type || data.recommended_action || 'N/A'}</span>
+                                    <span className="font-bold text-blue-400">{data.recommendation?.top_candidate?.action_type || 'N/A'}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
-                                    <span className="text-slate-400">Expected Recovery Value (ERV):</span>
-                                    <span className="font-bold text-emerald-400">${Number(data.recommendation?.expected_recovery_value || data.expected_recoverable_value || 0).toFixed(2)}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-slate-400">Execution Channel:</span>
-                                    <span className="text-slate-300">{data.recommendation?.channel || 'SYSTEM_INTERNAL'}</span>
+                                    <span className="text-slate-400">Expected Recoverable Value (ERV):</span>
+                                    <span className="font-bold text-emerald-400">${Number(data.recommendation?.top_candidate?.expected_recoverable_value ?? data.expected_recoverable_value ?? 0).toFixed(2)}</span>
                                 </div>
                             </div>
                         ) : (
@@ -195,24 +208,22 @@ export default function CaseDetail() {
                     <TimelineNode 
                         step="4"
                         title="ML Shadow Prediction"
-                        status={data.prediction?.status === 'SUCCESS' ? "SHADOW_ONLY" : (data.prediction?.status || 'PENDING')}
-                        source="Isolated XGBoost Shadow Model (Advisory Only)"
+                        status={data.ml_shadow_prediction?.prediction_status || 'PENDING'}
+                        source="Isolated Shadow Model (Advisory Only)"
                         isML
                     >
                         <div className="space-y-2.5 bg-slate-950/60 p-3.5 rounded-xl border border-purple-900/40 font-mono text-xs">
                             <div className="flex justify-between items-center">
-                                <span className="text-slate-400">Shadow Risk Probability:</span>
+                                <span className="text-slate-400">Recovery Probability (shadow):</span>
                                 <span className="font-extrabold text-purple-400 text-sm">
-                                    {data.prediction?.probability !== undefined 
-                                        ? `${(data.prediction.probability * 100).toFixed(1)}%` 
-                                        : (data.recovery_probability !== undefined && data.recovery_probability !== null 
-                                            ? `${(data.recovery_probability * 100).toFixed(1)}%` 
-                                            : 'N/A')}
+                                    {data.ml_shadow_prediction?.recovery_probability !== undefined && data.ml_shadow_prediction?.recovery_probability !== null
+                                        ? `${(data.ml_shadow_prediction.recovery_probability * 100).toFixed(1)}%`
+                                        : 'N/A'}
                                 </span>
                             </div>
                             <div className="flex justify-between items-center text-[11px]">
                                 <span className="text-slate-500">Model Version:</span>
-                                <span className="text-slate-300 truncate max-w-xs">{data.prediction?.model_version || data.prediction?.model_name || 'billing_recovery_v3 (Shadow)'}</span>
+                                <span className="text-slate-300 truncate max-w-xs">{data.ml_shadow_prediction?.model_version || '—'}</span>
                             </div>
                             <div className="p-2 rounded bg-purple-950/40 border border-purple-900/60 text-[11px] text-purple-300">
                                 <strong>Advisory Boundary:</strong> This prediction is shadow-only telemetry and does NOT authorize or trigger execution.
@@ -224,18 +235,18 @@ export default function CaseDetail() {
                     <TimelineNode 
                         step="5"
                         title="Deterministic Policy Engine Authorization"
-                        status={data.policy_decision?.decision || data.policy_status || 'PENDING'}
+                        status={data.policy_decision?.status || 'PENDING'}
                         source="Policy Engine (Sole Authority)"
                         isPolicy
                     >
                         <div className="space-y-2.5 bg-slate-950/60 p-3.5 rounded-xl border border-indigo-900/40 font-mono text-xs">
                             <div className="flex justify-between items-center">
                                 <span className="text-slate-400">Deterministic Authority Decision:</span>
-                                <StatusBadge status={data.policy_decision?.decision || data.policy_status || 'PENDING'} variant="policy" size="md" />
+                                <StatusBadge status={data.policy_decision?.status || 'PENDING'} variant="policy" size="md" />
                             </div>
                             <div className="flex justify-between items-center text-[11px]">
                                 <span className="text-slate-400">Rule Triggered:</span>
-                                <span className="text-slate-200">{data.policy_decision?.rule_triggered || 'RULE_STANDARD_RECOVERY'}</span>
+                                <span className="text-slate-200">{data.policy_decision?.failed_rules?.[0]?.rule_name || '—'}</span>
                             </div>
                             {data.policy_decision?.reason && (
                                 <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-800">
@@ -249,17 +260,17 @@ export default function CaseDetail() {
                     <TimelineNode 
                         step="6"
                         title="Simulated Agent Execution"
-                        status={data.execution_record?.status || (data.policy_status === 'PERMITTED' ? 'COMPLETED' : 'BLOCKED')}
+                        status={data.execution_record?.status || 'PENDING'}
                         source="Mock Execution Sandbox Adapter"
                     >
                         <div className="space-y-2 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 font-mono text-xs">
                             <div className="flex justify-between items-center">
-                                <span className="text-slate-400">Sandbox Execution Channel:</span>
-                                <span className="text-blue-400 font-semibold">{data.execution_record?.channel || 'SANDBOX_MOCK'}</span>
+                                <span className="text-slate-400">Agent / Adapter:</span>
+                                <span className="text-blue-400 font-semibold">{data.execution_record?.agent_type || '—'} / {data.execution_record?.adapter_used || 'MockExecutionAdapter'}</span>
                             </div>
                             <div className="flex justify-between items-center text-[11px]">
                                 <span className="text-slate-400">Adapter Result:</span>
-                                <span className="text-emerald-400 font-semibold">{data.execution_record?.status || (data.policy_status === 'PERMITTED' ? 'COMPLETED_SIMULATED' : 'BLOCKED')}</span>
+                                <span className="text-emerald-400 font-semibold">{data.execution_record?.status || '—'}</span>
                             </div>
                             <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-800">
                                 Simulated internal ledger execution &bull; No live external payment APIs or bank rails contacted.
@@ -271,17 +282,17 @@ export default function CaseDetail() {
                     <TimelineNode 
                         step="7"
                         title="Verification & Financial Outcome"
-                        status={data.outcome?.is_recovered ? "VERIFIED" : (data.current_state === 'RESOLVED' ? "COMPLETED" : "IN_PROGRESS")}
+                        status={data.outcome?.status || 'PENDING'}
                         source="Outcome Auditor & Verification Engine"
                     >
                         <div className="grid grid-cols-2 gap-3 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 font-mono text-xs">
                             <div>
                                 <span className="text-slate-500 block text-[10px] uppercase">Verified Recovered</span>
-                                <span className="font-bold text-emerald-400">${Number(data.outcome?.recovered_amount || 0).toFixed(2)}</span>
+                                <span className="font-bold text-emerald-400">${Number(data.outcome?.actual_amount_recovered || 0).toFixed(2)}</span>
                             </div>
                             <div>
                                 <span className="text-slate-500 block text-[10px] uppercase">Residual Recovery Gap</span>
-                                <span className="font-bold text-rose-400">${(Number(data.amount_at_risk || 0) - Number(data.outcome?.recovered_amount || 0)).toFixed(2)}</span>
+                                <span className="font-bold text-rose-400">${(Number(data.amount_at_risk || 0) - Number(data.outcome?.actual_amount_recovered || 0)).toFixed(2)}</span>
                             </div>
                         </div>
                     </TimelineNode>
@@ -301,7 +312,7 @@ export default function CaseDetail() {
                             </div>
                             <div className="flex justify-between items-center p-3 rounded-xl bg-slate-950/60 border border-slate-800">
                                 <span className="text-slate-400">Policy Authority:</span>
-                                <StatusBadge status={data.policy_status || 'PENDING'} variant="policy" />
+                                <StatusBadge status={data.policy_decision?.status || 'PENDING'} variant="policy" />
                             </div>
                             <div className="flex justify-between items-center p-3 rounded-xl bg-slate-950/60 border border-slate-800">
                                 <span className="text-slate-400">ML Shadow Mode:</span>
@@ -311,7 +322,7 @@ export default function CaseDetail() {
                     </SectionCard>
 
                     {/* Human Review Controller (For ESCALATE or pending review) */}
-                    {(data.policy_status === 'ESCALATE' || data.policy_status === 'PENDING_REVIEW' || data.current_state === 'WAITING_HUMAN_REVIEW') && (
+                    {(data.policy_decision?.status === 'ESCALATE' || data.current_state === 'ESCALATED' || data.current_state === 'POLICY_REVIEW') && (
                         <SectionCard 
                             title="Human Review Controller" 
                             subtitle="Human-in-the-loop governance for escalated risk cases"
@@ -358,11 +369,11 @@ export default function CaseDetail() {
                                 {audit.map((entry, idx) => (
                                     <div key={idx} className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1">
                                         <div className="flex justify-between items-center">
-                                            <span className="font-bold text-blue-400">{entry.action || entry.to_state || 'TRANSITION'}</span>
+                                            <span className="font-bold text-blue-400">{entry.evidence?.action || entry.to_state || 'TRANSITION'}</span>
                                             <span className="text-[10px] text-slate-500">{entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : 'N/A'}</span>
                                         </div>
                                         <div className="text-[11px] text-slate-400">
-                                            {entry.from_state ? `${entry.from_state} → ${entry.to_state}` : entry.details}
+                                            {entry.from_state ? `${entry.from_state} → ${entry.to_state}` : ''}
                                         </div>
                                     </div>
                                 ))}
