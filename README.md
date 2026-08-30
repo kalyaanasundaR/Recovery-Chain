@@ -97,11 +97,31 @@ pytest tests/test_policy.py::test_name -q   # single test
 The test suite forces its own database (`_pytest_recoverchain.db`, created fresh
 and dropped per session) — override with `RECOVERCHAIN_TEST_DATABASE_URL`.
 
-## Infrastructure (optional)
+## Containers
 
 ```bash
-docker-compose up -d       # PostgreSQL :5432 + Redis :6379
+docker-compose up --build   # postgres :5432 + redis :6379 + api :8000 + web :5173
 ```
+
+`postgres` + `redis` alone:
+
+```bash
+docker-compose up -d postgres redis
+```
+
+## Key endpoints
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/events` / `/events/batch` | ingest one / many; `auto_advance` runs the pipeline |
+| `POST` | `/cases/{id}/advance` | run assess→diagnose→predict→recommend→policy |
+| `POST` | `/cases/{id}/{assess-risk,diagnose,predict-recovery,recommend-action,policy-check,execute,verify}` | individual stages |
+| `POST` | `/cases/{id}/stop` | halt automated recovery (STOPPED) |
+| `GET` | `/cases`, `/cases/{id}`, `/dashboard/metrics` | dashboard reads |
+| `GET` | `/system/*` | read-only observability (cases, models, executions, audit, policy) |
+| `*` | `/datasets/*` | Dataset Lab |
+
+Mutating routes require header `X-API-Key` (`API_KEY` env, dev default `test-api-key`).
 
 ## Repository layout
 

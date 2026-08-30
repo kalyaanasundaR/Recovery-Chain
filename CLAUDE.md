@@ -4,120 +4,126 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-RecoverChain AI — a revenue-recovery decisioning system. Failed payments / overdue invoices / abandoned
-checkouts come in as events, get correlated into **cases**, and each case is driven through a fixed
-7-stage lifecycle (assess → diagnose → predict → recommend → policy-check → execute → verify). A second
-subsystem (the **Dataset Lab**) ingests arbitrary CSV/Parquet/XLSX datasets, semantically maps their
-columns, trains shadow ML models, and can replay dataset rows through the case pipeline.
+RecoverChain — revenue-recovery decisioning. Events (failed payments / overdue
+invoices / abandoned checkouts) are correlated into **cases**; each case runs a
+fixed deterministic lifecycle:
 
-The repo is not a git repository and has no CI. Build history is documented in the `architecture_phase*.md`
-files at the root (phase 22 and 23a are the most recent and most relevant). Root-level `phase16*_*.py`,
-`inspect_*.py`, `patch_*.py`, `validate_*.py`, `dq.py`, `check.py` etc. are one-off analysis/migration
-scripts — not part of the running application.
+```
+ingest → assess-risk → diagnose → predict-recovery → recommend-action (+ ERV)
+       → policy/safety gate → agent execution (sandbox) → verify → audit
+```
+
+A second subsystem, the **Dataset Lab**, ingests CSV/Parquet/XLSX, maps columns
+to canonical fields, checks ML readiness (leakage / minimum-info contract),
+trains **shadow-only** models, and can replay dataset rows through the pipeline.
+
+Build history: `docs/history/architecture_phase*.md`. `docs/MODEL_CARD.md` covers
+the shadow model.
 
 ## Commands
 
-All backend commands run from `backend/` with `PYTHONPATH=.` set.
+Backend runs from `backend/` with `PYTHONPATH=.` (use `backend/venv` — it has all deps).
 
 ```bash
-# Full stack (backend :8000 + frontend :5173, forces SQLite) — from repo root
-python run.py
+# full stack
+python run.py                                  # backend :8000 + frontend :5173 (SQLite)
 
-# Backend only
-cd backend && PYTHONPATH=. uvicorn api.main:app --reload   # http://localhost:8000/docs
+# backend
+cd backend && PYTHONPATH=. uvicorn api.main:app --reload
+cd backend && PYTHONPATH=. pytest              # 204 tests, isolated throwaway DB
+cd backend && PYTHONPATH=. pytest -m fast      # unit only
+cd backend && PYTHONPATH=. pytest tests/test_policy.py::test_A_permitted_action -q
 
-# Tests (from backend/)
-cd backend && PYTHONPATH=. pytest                 # all
-PYTHONPATH=. pytest -m fast                       # fast unit tests only
-PYTHONPATH=. pytest -m integration                # DB/API/adapter tests
-PYTHONPATH=. pytest tests/test_policy.py::test_name -q   # single test
+# schema
+cd backend && PYTHONPATH=. alembic upgrade head        # required for Postgres
+#   (SQLite dev auto-creates tables on startup; Postgres does NOT)
 
-# Frontend (from frontend/)
-npm install && npm run dev        # Vite dev server, proxies /api -> 127.0.0.1:8000
-npm run build                     # tsc + vite build
+# ML training (reproducible)
+cd backend && PYTHONPATH=. python run_phase19_training.py
 
-# Infra (optional; Postgres + Redis)
-docker-compose up -d
+# frontend
+cd frontend && npm install && npm run dev
+cd frontend && npm run build                   # tsc + vite
 
-# ML training (from backend/)
-PYTHONPATH=. python run_phase19_training.py
+# containers
+docker-compose up --build                      # postgres + redis + api + web
 ```
 
-`tests/conftest.py` auto-marks every test `fast` or `integration` by filename/fixtures — there is no
-explicit marker in most test files. It also monkeypatches `time.sleep` to zero.
+`tests/conftest.py` forces an isolated SQLite file (`RECOVERCHAIN_TEST_DATABASE_URL`
+to override), creates/drops the schema per session, bypasses the API-key
+dependency, and disables the ML quality gate (`ML_MIN_ROC_AUC=0`).
 
-## Database
+## Config / env
 
-`infrastructure/db.py` picks the engine from `DATABASE_URL` (default Postgres). Set
-`DATABASE_URL=sqlite:///./test_recoverchain.db` for local runs — `run.py` does this automatically.
-Under SQLite the schema is created at import time by `Base.metadata.create_all` in `api/main.py`.
-For Postgres use Alembic: `cd backend && PYTHONPATH=. alembic upgrade head`. `recoverchain.db` /
-`test_recoverchain.db` are checked-in SQLite files used by tests and local runs.
-
-`requirements.txt` is UTF-16 encoded and lists only the FastAPI/SQLAlchemy core. `pandas`, `numpy`,
-`scikit-learn`, `xgboost`, `joblib`, `pyarrow`, `openpyxl`, `python-dateutil`, and `alembic` are
-imported by the Dataset Lab / ML code but are **not** in `requirements.txt` — install them separately.
+| Var | Default | Notes |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://...` | `sqlite:///./x.db` for local |
+| `API_KEY` | `test-api-key` | `X-API-Key` header on mutating routes |
+| `CORS_ORIGINS` | `*` | comma-separated allowlist |
+| `AUTO_CREATE_TABLES` | — | `1` forces `create_all` on non-SQLite (dev only) |
+| `ML_MIN_ROC_AUC` / `ML_MIN_TEST_ROWS` | `0.55` / `200` | training quality gate; `0` disables |
+| `REDIS_URL` | `redis://localhost:6379/0` | only `/health` uses it |
+| `GEMINI_API_KEY` | — | optional real-LLM evaluation mode |
 
 ## Architecture
 
-Clean/hexagonal layering under `backend/`:
+Clean layering under `backend/`:
 
-- **`domain/`** — framework-free Pydantic models. `models.py` holds the `RecoveryCase` aggregate plus
-  one sub-object per lifecycle stage (`RiskAssessment`, `RootCauseDiagnosis`, `RecoveryPrediction`,
-  `ActionRecommendation`, `PolicyDecision`, `ExecutionRecord`, `RecoveryOutcome`), the `CaseState` enum,
-  and `Money` (uses `Decimal`). `lifecycle.py` (`CaseLifecycleManager`) enforces legal state
-  transitions. `interfaces.py` defines `ICaseRepository` / `IAuditRecorder`. `llm_schemas.py` is the
-  strict schema LLM output must validate against.
-- **`application/`** — one engine per stage, all deterministic: `risk_detector`, `diagnosis_engine`,
-  `recovery_predictor` (deterministic baseline) / `recovery_predictor_ml` (shadow XGBoost),
-  `action_evaluator`, `policy_engine`, `agents` (orchestrates recovery agents → `MockExecutionAdapter`),
-  `verification_engine`. Dataset Lab: `dataset_lab` (service), `dataset_intelligence`
-  (`SemanticMapper`, `DatasetValidator`, `DatasetProfiler`, `CanonicalField`), `ml_readiness`,
-  `ml_training` (sklearn `Pipeline` + XGBoost, writes to `ml/models/registry/`).
-  `langgraph_orchestrator.py` contains a **hand-rolled `StateGraph`** — real LangGraph is stubbed out
-  because its `xxhash` DLL is blocked on the dev machine.
-- **`infrastructure/`** — `orm.py` / `dataset_orm.py` (SQLAlchemy; lifecycle sub-objects are stored as
-  **JSON columns** on `CaseModel`, not normalized tables), `repositories.py` (`SqlAlchemyCaseRepository`
-  maps ORM ↔ domain and calls `db.commit()` itself — transactions are per-use-case), `redis_client.py`,
-  `adapters.py`.
-- **`api/`** — `main.py`: the case pipeline (`POST /events`, `POST|GET /cases/{id}/<stage>`,
-  `/dashboard/metrics`, `/cases/{id}/human-review`). `dataset_router.py`: `/datasets/*` Dataset Lab.
-  `system_router.py`: `/system/*` read-only observability.
+- **`domain/`** — Pydantic models (`RecoveryCase` aggregate + 7 stage sub-objects,
+  `CaseState`, `Money` = `Decimal`), `lifecycle.py`, `interfaces.py`, `llm_schemas.py`.
+- **`application/`** — one engine per stage: `risk_detector`, `diagnosis_engine`,
+  `recovery_predictor` (deterministic baseline) / `recovery_predictor_ml` (shadow
+  XGBoost), `action_evaluator`, `policy_engine`, `agents`, `verification_engine`.
+  **`case_pipeline.py`** (`CasePipelineService`) runs assess→diagnose→predict→
+  recommend→policy in one call and is the shared path for `/events/batch` and
+  `/cases/{id}/advance`. Dataset Lab: `dataset_lab`, `dataset_intelligence`,
+  `ml_readiness`, `ml_training`. `langgraph_orchestrator.py` is a hand-rolled
+  `StateGraph` (real langgraph needs `xxhash`, blocked) used **only** by
+  `evaluation/runner.py`.
+- **`infrastructure/`** — `orm.py` / `dataset_orm.py` (lifecycle sub-objects are
+  **JSON columns** on `recovery_cases`; `execution_attempts` ledger; `idempotency_keys`),
+  `repositories.py` (`SqlAlchemyCaseRepository` — ORM↔domain map, `record_execution_attempt`,
+  `get_policy_context`; commits per use-case), `redis_client.py`, `adapters.py`.
+- **`api/`** — `auth.py` (`verify_api_key`); `main.py` (case pipeline + `/events/batch`,
+  `/cases/{id}/advance`, `/cases/{id}/stop`, request-id middleware); `dataset_router.py`
+  (`/datasets/*`); `system_router.py` (`/system/*` read-only observability).
 
-Frontend (`frontend/`): React 18 + Vite + react-router-dom + TypeScript. `src/api/client.ts` wraps every
-backend call (`BASE_URL = '/api'`, proxied by Vite). Pages: Dashboard, Cases, CaseDetail,
-DatasetLibrary, DatasetAnalysis.
+Frontend (`frontend/`): React 18 + Vite + react-router + **Tailwind v3** (`.cjs`
+configs). `src/api/client.ts` wraps every call (`/api` → Vite proxy). Pages:
+Dashboard, Cases, CaseDetail (reads `/system/cases/{id}`), DatasetLibrary,
+DatasetAnalysis.
 
-## Invariants — do not break these
+## Invariants — do not break
 
-- **ML is shadow-only.** ML predictions are advisory telemetry. `DeterministicPolicyEngine` has sole
-  authority to gate execution; ML output must never feed the authorization path. Predictors hardcode
-  `shadow_mode_active: True` and prediction status `SHADOW_ONLY`.
-- **Execution is simulated.** `agents.py` routes to `MockExecutionAdapter`; there are no live payment
-  gateways. Success is `ExecutionStatus.COMPLETED_SIMULATED`.
-- **Financials.** `Money` is `Decimal`; ORM columns are `Numeric(18,4)`. The actual recovered amount
-  comes only from `RecoveryOutcome` (verification stage) — never copied from a prediction.
-- **Leakage prevention.** `DatasetValidator.detect_leakage` flags POST_OUTCOME columns (e.g.
-  `actual_recovered_amount`, `settled_amount`, `SettledDate`) and excludes them from ML features. A
-  dataset needs Entity + Amount + Time + Outcome/Target (the "Minimum Information Contract") to reach
-  `ML_TRAINING_READY`; leaked-but-otherwise-complete datasets downgrade to `ANALYSIS_READY`.
-- **Server-side trust.** Frontend mapping overrides (`POST /datasets/{id}/mapping`) are fully
-  re-validated server-side: nonexistent columns, duplicate single-use assignments (TARGET / OUTCOME /
-  AMOUNT), and mapping a target onto a leaked column are hard 400s.
-- **Dataset↔model isolation.** `MLPaymentFailurePredictor` loads only a model whose registry metadata
-  `dataset_id` exactly matches the request — there is no global "latest" model. Canonical inputs
-  (`AMOUNT`, `CUSTOMER_ID`, …) are inverse-mapped to original column names via
-  `canonical_feature_mapping` in the metadata JSON.
-- **Event identity.** `(external_system, external_event_id)` is unique (dedup). Correlation into an
-  existing active case requires matching `customer_id` + `risk_category` + `reference_id`; without a
-  `reference_id` a new case is always created. `amount_at_risk` is the **latest** linked event's amount,
-  not a sum.
-- **API key.** Mutating endpoints (`/events`, `/cases/{id}/execute`, `/cases/{id}/human-review`) require
-  header `X-API-Key` (env `API_KEY`, default `test-api-key`).
+- **ML is shadow-only.** `DeterministicPolicyEngine` is the sole execution
+  authority. Predictors hard-code `shadow_mode_active: True`; no ML value feeds a
+  `PolicyDecision`. When no per-dataset model exists (or it failed the quality
+  gate → `REJECTED_LOW_QUALITY`), prediction falls back to
+  `DeterministicBaselinePredictor` — never a silent 0.0.
+- **Execution is simulated** (`MockExecutionAdapter`); no live gateways.
+  `AgentOrchestrator.execute` requires a persisted `PolicyDecision.status ==
+  PERMITTED`, matching action, fresh decision, and an agent that can handle it.
+  Pass `repo=` for idempotency (replay → same `ExecutionRecord`) + ledger write.
+- **Policy uses real history when available.** `DeterministicPolicyEngine.evaluate(
+  case, context: PolicyContext | None)` — with a `PolicyContext` (built from
+  `execution_attempts` by `repo.get_policy_context`) retry/cooldown/contact limits
+  count real attempts; without one it uses the legacy `linked_events` proxy
+  (unit tests). Also enforces `StopRule` + `ConsentCheck`.
+- **Financials.** `Money` = `Decimal`; ORM `Numeric(18,4)`. Actual recovered amount
+  comes only from `RecoveryOutcome`. `verification_engine` clamps to `[0, amount]`.
+- **Leakage / dataset↔model isolation** unchanged: `DatasetValidator.detect_leakage`,
+  minimum-info contract, and `MLPaymentFailurePredictor` loads only a model whose
+  metadata `dataset_id` exactly matches (and status ≠ `REJECTED_LOW_QUALITY`).
+- **Migrations own the Postgres schema.** The initial migration `create_table`s
+  all tables from scratch; `create_all` runs only for SQLite (or `AUTO_CREATE_TABLES=1`).
+- **Auth.** `verify_api_key` guards `/events*`, `/cases/{id}/{advance,stop,execute,
+  assess-risk,diagnose,predict-recovery,recommend-action,policy-check,verify}`,
+  `/human-review`, `/evaluation/run`. Tests override the dependency in conftest.
 
-## Model registry
+## Not yet done (see the roadmap)
 
-`backend/ml/models/registry/` holds `{run_id}_model.joblib` + `{run_id}_metadata.json` pairs written by
-`MLTrainingEngine`. Metadata carries `dataset_id`, `task` (`payment-failure-risk`), `feature_columns`,
-`target_column`, `canonical_feature_mapping`, and test metrics. Curated training datasets and their
-provenance/leakage notes live in `backend/evaluation/datasets/` (see `dataset_manifest.json`).
+- **First-class entities** (Customer, Transaction/Payment, Invoice, Subscription,
+  CheckoutSession, PromiseToPay) + entity resolution — still: everything except
+  Case↔Event / Case↔Audit / execution_attempts is a JSON blob, and correlation
+  needs a shared `reference_id`.
+- **Real payment / comms adapters, provider webhooks, multi-tenancy.**
