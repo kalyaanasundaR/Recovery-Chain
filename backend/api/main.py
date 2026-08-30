@@ -33,8 +33,11 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create tables for SQLite local test usage (For postgres, alembic is used)
-Base.metadata.create_all(bind=engine)
+# Auto-create tables only for local SQLite dev/test. For Postgres (and any other
+# engine) the schema is owned by Alembic migrations: run `alembic upgrade head`.
+# Override with AUTO_CREATE_TABLES=1 if you really need create_all elsewhere.
+if engine.dialect.name == "sqlite" or os.getenv("AUTO_CREATE_TABLES") == "1":
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="RecoverChain AI Core API", version="0.2.0")
 
