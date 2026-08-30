@@ -20,7 +20,7 @@ from infrastructure.redis_client import get_redis_client
 from infrastructure.repositories import SqlAlchemyCaseRepository, SqlAlchemyAuditRecorder
 from application.case_engine import CaseEngine, DuplicateEventException
 from domain.models import RevenueEvent, Money
-from api.schemas import IngestEventRequest, IngestEventResponse, CaseResponse, AuditResponse, RiskAssessmentResponse, DiagnosisResponse, RecoveryPredictionResponse, ActionRecommendationResponse, PolicyDecisionResponse, ExecutionRecordResponse, RecoveryOutcomeResponse, VerifyOutcomeRequest, DashboardMetricsResponse
+from api.schemas import IngestEventRequest, IngestEventResponse, CaseResponse, AuditResponse, RiskAssessmentResponse, DiagnosisResponse, RecoveryPredictionResponse, ActionRecommendationResponse, PolicyDecisionResponse, ExecutionRecordResponse, RecoveryOutcomeResponse, VerifyOutcomeRequest, DashboardMetricsResponse, BatchIngestRequest, BatchIngestItemResult, BatchIngestResponse, AdvanceCaseResponse
 
 # ... (skipping to line 75) ...
 # I will use replace_file_content separately for the APIs and CaseResponse mapping.
@@ -93,6 +93,95 @@ def ingest_event(request: IngestEventRequest, engine: CaseEngine = Depends(get_c
     except Exception as e:
         logger.error(f"Failed to ingest event: {e}")
         raise HTTPException(status_code=500, detail="Internal server error during ingestion")
+
+
+@app.post("/events/batch", response_model=BatchIngestResponse)
+def ingest_events_batch(request: BatchIngestRequest, db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    """Ingest many events in one call; optionally run the deterministic pipeline
+    (assess -> diagnose -> predict -> recommend -> policy) on each new/affected case."""
+    repo = SqlAlchemyCaseRepository(db)
+    audit = SqlAlchemyAuditRecorder(db)
+    engine = CaseEngine(repository=repo, audit_recorder=audit)
+    from application.case_pipeline import CasePipelineService
+    pipeline = CasePipelineService(repo, audit)
+
+    results: list[BatchIngestItemResult] = []
+    ingested = duplicates = failed = 0
+
+    for item in request.events:
+        event = RevenueEvent(
+            event_id=f"evt_{uuid.uuid4().hex[:8]}",
+            customer_id=item.customer_id,
+            risk_category=item.risk_category,
+            external_system=item.external_system,
+            external_event_id=item.external_event_id,
+            reference_id=item.reference_id,
+            amount=Money(amount=item.amount, currency=item.currency),
+            timestamp=datetime.now(timezone.utc),
+            raw_payload=item.raw_payload,
+        )
+        try:
+            case, is_new = engine.ingest_normalized_event(event)
+        except DuplicateEventException as e:
+            duplicates += 1
+            results.append(BatchIngestItemResult(external_event_id=item.external_event_id, status="ignored", message=str(e)))
+            continue
+        except Exception as e:
+            failed += 1
+            logger.error(f"batch ingest failed for {item.external_event_id}: {e}")
+            results.append(BatchIngestItemResult(external_event_id=item.external_event_id, status="error", message=str(e)))
+            continue
+
+        ingested += 1
+        pol_status = None
+        if request.auto_advance:
+            try:
+                case = pipeline.advance(case)
+                pol_status = case.policy_decision.status.value if case.policy_decision else None
+            except Exception as e:
+                logger.error(f"pipeline advance failed for {case.case_id}: {e}")
+        results.append(BatchIngestItemResult(
+            external_event_id=item.external_event_id,
+            case_id=case.case_id,
+            is_new_case=is_new,
+            status="success",
+            current_state=case.current_state.value if hasattr(case.current_state, "value") else str(case.current_state),
+            policy_status=pol_status,
+            message="ingested" + (" + advanced" if request.auto_advance else ""),
+        ))
+
+    return BatchIngestResponse(
+        submitted=len(request.events), ingested=ingested, duplicates=duplicates, failed=failed, results=results
+    )
+
+
+@app.post("/cases/{case_id}/advance", response_model=AdvanceCaseResponse)
+def advance_case(case_id: str, dataset_id: Optional[str] = None, db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    """Run the full deterministic pipeline on an existing case in one call."""
+    repo = SqlAlchemyCaseRepository(db)
+    audit = SqlAlchemyAuditRecorder(db)
+    case = repo.get_by_id(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    from application.case_pipeline import CasePipelineService
+    case = CasePipelineService(repo, audit).advance(case, dataset_id=dataset_id)
+
+    return AdvanceCaseResponse(
+        case_id=case.case_id,
+        current_state=case.current_state.value if hasattr(case.current_state, "value") else str(case.current_state),
+        risk_level=case.risk_assessment.risk_level if case.risk_assessment else None,
+        cause_category=case.diagnosis.cause_category if case.diagnosis else None,
+        recovery_probability=case.prediction.recovery_probability if case.prediction else None,
+        prediction_status=case.prediction.prediction_status if case.prediction else None,
+        recommended_action=(case.recommendation.top_candidate.action_type
+                            if case.recommendation and case.recommendation.top_candidate else None),
+        expected_recoverable_value=(case.expected_recoverable_value.amount
+                                    if case.expected_recoverable_value else None),
+        policy_status=case.policy_decision.status.value if case.policy_decision else None,
+        policy_reason=case.policy_decision.reason if case.policy_decision else None,
+    )
+
 
 @app.get("/cases/{case_id}", response_model=CaseResponse)
 def get_case(case_id: str, db: Session = Depends(get_db)):
@@ -263,44 +352,11 @@ def predict_recovery(case_id: str, dataset_id: Optional[str] = None, db: Session
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
         
-    from application.recovery_predictor_ml import MLPaymentFailurePredictor
-    from domain.models import RecoveryPrediction
-    import uuid
-    from datetime import datetime, timezone
-    
-    predictor = MLPaymentFailurePredictor(dataset_id=dataset_id)
-    
-    # Map raw case variables into authoritative Canonical Field keys
-    feature_dict = {
-        "AMOUNT": case.amount_at_risk.amount if case.amount_at_risk else 0.0,
-        "BALANCE": case.amount_at_risk.amount if case.amount_at_risk else 0.0,
-        "CUSTOMER_ID": case.customer_id,
-        "ACCOUNT_ID": case.customer_id,
-        "ENTITY_ID": case.customer_id,
-        "TIMESTAMP": datetime.utcnow().isoformat(),
-    }
-    
-    try:
-        res = predictor.predict_failure_risk(feature_dict)
-        prob = res.get("probability", 0.0)
-        status = res.get("status", "SUCCESS")
-        meta = res.get("model_metadata", {"model_version": "shadow_fallback"})
-    except ValueError as e:
-        prob = 0.0
-        status = f"REJECTED: {str(e)}"
-        meta = {"model_version": "shadow_rejected"}
-        
-    prediction = RecoveryPrediction(
-        prediction_id=f"pred_{uuid.uuid4().hex[:8]}",
-        recovery_probability=prob,
-        confidence=0.8,
-        model_version=meta.get("model_version", "unknown"),
-        feature_version="1.0",
-        prediction_timestamp=datetime.now(timezone.utc),
-        contributing_features=feature_dict,
-        prediction_status=status
-    )
-    
+    from application.case_pipeline import predict_recovery_for_case
+
+    # Shadow ML if a dataset-isolated model exists, else deterministic baseline
+    # (never a meaningless 0.0).
+    prediction = predict_recovery_for_case(case, dataset_id=dataset_id)
     case.prediction = prediction
     
     audit.log_transition(
@@ -356,8 +412,13 @@ def recommend_action(case_id: str, db: Session = Depends(get_db)):
     
     evaluator = DeterministicActionEvaluator()
     recommendation = evaluator.evaluate(case)
-    
+
     case.recommendation = recommendation
+    if recommendation.top_candidate:
+        _cur = case.amount_at_risk.currency if case.amount_at_risk else "USD"
+        case.expected_recoverable_value = Money(
+            amount=recommendation.top_candidate.expected_recoverable_value, currency=_cur
+        )
     case.current_state = CaseState.RECOMMENDING
     
     top_type = recommendation.top_candidate.action_type if recommendation.top_candidate else "NONE"

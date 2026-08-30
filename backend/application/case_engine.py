@@ -5,12 +5,14 @@ from domain.models import RevenueEvent, RecoveryCase, RiskCategory, Money, CaseS
 from domain.interfaces import ICaseRepository, IAuditRecorder
 from domain.lifecycle import CaseLifecycleManager
 
-ACTIVE_STATES = {
-    CaseState.DETECTED, CaseState.OPEN, CaseState.DIAGNOSING,
-    CaseState.ASSESSED, CaseState.ACTION_PROPOSED, CaseState.POLICY_REVIEW,
-    CaseState.WAITING, CaseState.ESCALATED, CaseState.EXECUTING,
-    CaseState.VERIFYING
+# A case is "active" (still eligible to have new events correlated onto it)
+# unless it has reached a terminal outcome. Derive from CaseState so new
+# in-flight states can't be silently missed by correlation.
+_TERMINAL_STATES = {
+    CaseState.FULLY_RECOVERED, CaseState.PARTIALLY_RECOVERED,
+    CaseState.CLOSED_NOT_RECOVERED, CaseState.DENIED, CaseState.STOPPED,
 }
+ACTIVE_STATES = {s for s in CaseState if s not in _TERMINAL_STATES}
 
 class DuplicateEventException(Exception):
     pass

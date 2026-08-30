@@ -141,6 +141,38 @@ class HumanReviewRequest(BaseModel):
     decision: str
     note: str
 
+class BatchIngestRequest(BaseModel):
+    events: List[IngestEventRequest]
+    auto_advance: bool = True
+
+class BatchIngestItemResult(BaseModel):
+    external_event_id: str
+    case_id: Optional[str] = None
+    is_new_case: bool = False
+    status: str
+    current_state: Optional[str] = None
+    policy_status: Optional[str] = None
+    message: str = ""
+
+class BatchIngestResponse(BaseModel):
+    submitted: int
+    ingested: int
+    duplicates: int
+    failed: int
+    results: List[BatchIngestItemResult]
+
+class AdvanceCaseResponse(BaseModel):
+    case_id: str
+    current_state: str
+    risk_level: Optional[str] = None
+    cause_category: Optional[str] = None
+    recovery_probability: Optional[float] = None
+    prediction_status: Optional[str] = None
+    recommended_action: Optional[str] = None
+    expected_recoverable_value: Optional[Decimal] = None
+    policy_status: Optional[str] = None
+    policy_reason: Optional[str] = None
+
 class DatasetPredictionRequest(BaseModel):
     canonical_features: Dict[str, Any]
 

@@ -197,7 +197,9 @@ def test_accepted_case_full_safety_lifecycle():
     p_res = client.post(f"/cases/{case_id}/predict-recovery")
     assert p_res.status_code == 200
     pred = p_res.json()
-    assert pred["prediction_status"] in ["SHADOW_ONLY", "NO_MODEL"]
+    # ML stays shadow-only; when no dataset-isolated model exists we fall back to
+    # the deterministic baseline rather than a meaningless 0.0.
+    assert pred["prediction_status"] in ["SHADOW_ONLY", "NO_MODEL", "SUCCESS_BASELINE"]
     assert 0.0 <= pred["recovery_probability"] <= 1.0
     
     # 5. Recommendation
