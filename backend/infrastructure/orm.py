@@ -1,0 +1,75 @@
+from sqlalchemy import Column, String, Numeric, DateTime, Enum, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy.orm import relationship
+from infrastructure.db import Base
+from domain.models import RiskCategory, CaseState
+from datetime import datetime, timezone
+
+class CaseModel(Base):
+    __tablename__ = "recovery_cases"
+
+    case_id = Column(String, primary_key=True, index=True)
+    customer_id = Column(String, index=True, nullable=False)
+    risk_category = Column(Enum(RiskCategory), nullable=False)
+    reference_id = Column(String, index=True, nullable=True)
+    
+    amount_at_risk = Column(Numeric(precision=18, scale=4), nullable=False)
+    expected_recoverable_value = Column(Numeric(precision=18, scale=4), nullable=True)
+    currency = Column(String, default="USD", nullable=False)
+    
+    current_state = Column(Enum(CaseState), nullable=False, default=CaseState.DETECTED)
+    risk_assessment = Column(JSON, nullable=True)
+    diagnosis = Column(JSON, nullable=True)
+    prediction = Column(JSON, nullable=True)
+    recommendation = Column(JSON, nullable=True)
+    policy_decision = Column(JSON, nullable=True)
+    execution_record = Column(JSON, nullable=True)
+    outcome = Column(JSON, nullable=True)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    events = relationship("EventModel", back_populates="case")
+    audits = relationship("AuditModel", back_populates="case")
+
+class EventModel(Base):
+    __tablename__ = "revenue_events"
+
+    event_id = Column(String, primary_key=True, index=True)
+    case_id = Column(String, ForeignKey("recovery_cases.case_id"), nullable=False)
+    customer_id = Column(String, nullable=False)
+    external_system = Column(String, nullable=False)
+    external_event_id = Column(String, nullable=False, index=True)
+    reference_id = Column(String, index=True, nullable=True)
+    risk_category = Column(Enum(RiskCategory), nullable=False)
+    
+    amount = Column(Numeric(precision=18, scale=4), nullable=False)
+    currency = Column(String, default="USD")
+    
+    timestamp = Column(DateTime, nullable=False)
+    raw_payload = Column(JSON, nullable=False)
+
+    case = relationship("CaseModel", back_populates="events")
+
+    __table_args__ = (
+        UniqueConstraint('external_system', 'external_event_id', name='uq_external_event_sys_id'),
+    )
+
+class AuditModel(Base):
+    __tablename__ = "audit_records"
+    
+    id = Column(String, primary_key=True)
+    case_id = Column(String, ForeignKey("recovery_cases.case_id"), index=True, nullable=True) # Nullable for system-level audits like dedup
+    from_state = Column(String)
+    to_state = Column(String)
+    evidence = Column(JSON)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    case = relationship("CaseModel", back_populates="audits")
+
+class IdempotencyRecord(Base):
+    __tablename__ = 'idempotency_keys'
+    
+    idempotency_key = Column(String, primary_key=True)
+    execution_record = Column(JSON, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
