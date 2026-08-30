@@ -56,6 +56,8 @@ class EvidenceBuilder:
             if promise_date_str:
                 try:
                     promise_date = datetime.fromisoformat(promise_date_str)
+                    if promise_date.tzinfo is None:
+                        promise_date = promise_date.replace(tzinfo=timezone.utc)
                     if promise_date < now:
                         evidence["promise_date_passed"] = True
                 except ValueError:
