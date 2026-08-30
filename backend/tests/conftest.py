@@ -50,6 +50,16 @@ def _test_database():
             pass
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _bypass_api_key(_test_database):
+    """Most tests don't care about auth. Override the API-key dependency for the
+    whole suite; test_auth.py clears this to exercise the 401/403 path."""
+    from api.main import app, verify_api_key
+    app.dependency_overrides[verify_api_key] = lambda: "test-bypass"
+    yield
+    app.dependency_overrides.pop(verify_api_key, None)
+
+
 @pytest.fixture(autouse=True)
 def remove_artificial_delays(monkeypatch):
     """

@@ -1,20 +1,13 @@
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import APIKeyHeader
-from fastapi import Security, status
+from fastapi import status
 import os
 
-API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-def verify_api_key(api_key: str = Security(API_KEY_HEADER)):
-    expected = os.getenv("API_KEY", "test-api-key")
-    if api_key != expected:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    return api_key
+from api.auth import verify_api_key
 
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func
 from infrastructure.db import get_db, engine, Base
 from infrastructure.redis_client import get_redis_client
 from infrastructure.repositories import SqlAlchemyCaseRepository, SqlAlchemyAuditRecorder
@@ -41,13 +34,31 @@ if engine.dialect.name == "sqlite" or os.getenv("AUTO_CREATE_TABLES") == "1":
 
 app = FastAPI(title="RecoverChain AI Core API", version="0.2.0")
 
+_cors_origins = os.getenv("CORS_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"] if _cors_origins == "*" else [o.strip() for o in _cors_origins.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_context(request, call_next):
+    import time as _t
+    rid = uuid.uuid4().hex[:12]
+    start = _t.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("request_error rid=%s %s %s", rid, request.method, request.url.path)
+        raise
+    dur_ms = round((_t.perf_counter() - start) * 1000, 1)
+    logger.info("request rid=%s %s %s -> %s %sms",
+                rid, request.method, request.url.path, response.status_code, dur_ms)
+    response.headers["X-Request-ID"] = rid
+    return response
 
 from api.dataset_router import router as dataset_router
 from api.system_router import router as system_router
@@ -244,7 +255,7 @@ def get_case_audit(case_id: str, db: Session = Depends(get_db)):
         ) for a in audits
     ]
 
-@app.post("/cases/{case_id}/assess-risk", response_model=RiskAssessmentResponse)
+@app.post("/cases/{case_id}/assess-risk", dependencies=[Depends(verify_api_key)], response_model=RiskAssessmentResponse)
 def assess_risk(case_id: str, db: Session = Depends(get_db)):
     repo = SqlAlchemyCaseRepository(db)
     audit = SqlAlchemyAuditRecorder(db)
@@ -302,7 +313,7 @@ def get_risk(case_id: str, db: Session = Depends(get_db)):
         detector_version=assessment.detector_version
     )
 
-@app.post("/cases/{case_id}/diagnose", response_model=DiagnosisResponse)
+@app.post("/cases/{case_id}/diagnose", dependencies=[Depends(verify_api_key)], response_model=DiagnosisResponse)
 def diagnose_case(case_id: str, db: Session = Depends(get_db)):
     repo = SqlAlchemyCaseRepository(db)
     audit = SqlAlchemyAuditRecorder(db)
@@ -359,7 +370,7 @@ def get_diagnosis(case_id: str, db: Session = Depends(get_db)):
         timestamp=d.timestamp.isoformat()
     )
 
-@app.post("/cases/{case_id}/predict-recovery", response_model=RecoveryPredictionResponse)
+@app.post("/cases/{case_id}/predict-recovery", dependencies=[Depends(verify_api_key)], response_model=RecoveryPredictionResponse)
 def predict_recovery(case_id: str, dataset_id: Optional[str] = None, db: Session = Depends(get_db)):
     repo = SqlAlchemyCaseRepository(db)
     audit = SqlAlchemyAuditRecorder(db)
@@ -414,7 +425,7 @@ def get_prediction(case_id: str, db: Session = Depends(get_db)):
         prediction_status=p.prediction_status
     )
 
-@app.post("/cases/{case_id}/recommend-action", response_model=ActionRecommendationResponse)
+@app.post("/cases/{case_id}/recommend-action", dependencies=[Depends(verify_api_key)], response_model=ActionRecommendationResponse)
 def recommend_action(case_id: str, db: Session = Depends(get_db)):
     repo = SqlAlchemyCaseRepository(db)
     audit = SqlAlchemyAuditRecorder(db)
@@ -476,7 +487,7 @@ def get_recommendation(case_id: str, db: Session = Depends(get_db)):
         timestamp=rec.timestamp.isoformat()
     )
 
-@app.post("/cases/{case_id}/policy-check", response_model=PolicyDecisionResponse)
+@app.post("/cases/{case_id}/policy-check", dependencies=[Depends(verify_api_key)], response_model=PolicyDecisionResponse)
 def policy_check(case_id: str, db: Session = Depends(get_db)):
     repo = SqlAlchemyCaseRepository(db)
     audit = SqlAlchemyAuditRecorder(db)
@@ -587,7 +598,7 @@ def execute_action(case_id: str, db: Session = Depends(get_db), api_key: str = D
         result_metadata=record.result_metadata
     )
 
-@app.post("/cases/{case_id}/verify", response_model=RecoveryOutcomeResponse)
+@app.post("/cases/{case_id}/verify", dependencies=[Depends(verify_api_key)], response_model=RecoveryOutcomeResponse)
 def verify_outcome(case_id: str, request: VerifyOutcomeRequest, db: Session = Depends(get_db)):
     repo = SqlAlchemyCaseRepository(db)
     audit = SqlAlchemyAuditRecorder(db)
@@ -651,7 +662,7 @@ def get_outcome(case_id: str, db: Session = Depends(get_db)):
         timestamp=outcome.verification_timestamp.isoformat()
     )
 
-@app.post("/evaluation/run")
+@app.post("/evaluation/run", dependencies=[Depends(verify_api_key)])
 def run_evaluation(db: Session = Depends(get_db)):
     from evaluation.scenarios import SCENARIOS
     from evaluation.runner import EvaluationRunner
@@ -680,83 +691,86 @@ def health_check(db: Session = Depends(get_db)):
 
 from infrastructure.orm import CaseModel
 
-@app.get('/cases', response_model=list[CaseResponse])
-def list_cases(db: Session = Depends(get_db)):
-    repo = SqlAlchemyCaseRepository(db)
-    # Simple list for UI prototype, ignoring pagination/filters for now to get it running
-    cases = db.query(CaseModel).all()
-    result = []
-    for c in cases:
-        case_domain = repo.get_by_id(c.case_id)
-        if case_domain:
-            pol_status = None
-            if hasattr(case_domain, 'policy_decision') and case_domain.policy_decision:
-                pol_status = case_domain.policy_decision.status.value if hasattr(case_domain.policy_decision.status, 'value') else str(case_domain.policy_decision.status)
-            exec_status = None
-            if hasattr(case_domain, 'execution_record') and case_domain.execution_record:
-                exec_status = case_domain.execution_record.status.value if hasattr(case_domain.execution_record.status, 'value') else str(case_domain.execution_record.status)
-            out_status = None
-            if hasattr(case_domain, 'outcome') and case_domain.outcome:
-                out_status = case_domain.outcome.status.value if hasattr(case_domain.outcome.status, 'value') else str(case_domain.outcome.status)
+def _json_get(blob, *keys):
+    cur = blob
+    for k in keys:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
 
-            result.append(CaseResponse(
-                case_id=case_domain.case_id,
-                customer_id=case_domain.customer_id,
-                risk_category=case_domain.risk_category,
-                amount_at_risk=case_domain.amount_at_risk.amount,
-                currency=case_domain.amount_at_risk.currency,
-                current_state=case_domain.current_state,
-                event_count=len(case_domain.linked_events),
-                risk_level=case_domain.risk_assessment.risk_level if case_domain.risk_assessment else None,
-                cause_category=case_domain.diagnosis.cause_category if case_domain.diagnosis else None,
-                recovery_probability=case_domain.prediction.recovery_probability if case_domain.prediction else None,
-                recommended_action=case_domain.recommendation.top_candidate.action_type if case_domain.recommendation and case_domain.recommendation.top_candidate else None,
-                policy_status=pol_status,
-                execution_status=exec_status,
-                outcome_status=out_status,
-                actual_amount_recovered=case_domain.outcome.actual_amount_recovered.amount if hasattr(case_domain, 'outcome') and case_domain.outcome else None
-            ))
+
+def _scalar(v):
+    """Unwrap a serialized Money dict ({'amount','currency'}) to its amount."""
+    return v.get("amount") if isinstance(v, dict) else v
+
+
+@app.get('/cases', response_model=list[CaseResponse])
+def list_cases(limit: int = 200, offset: int = 0, db: Session = Depends(get_db)):
+    """Read straight from the persisted JSON columns — one query, no per-row
+    domain rehydration (was an N+1 over every case)."""
+    limit = max(1, min(limit, 500))
+    q = (db.query(CaseModel, func.count(EventModel.event_id))
+         .outerjoin(EventModel, EventModel.case_id == CaseModel.case_id)
+         .group_by(CaseModel.case_id)
+         .order_by(CaseModel.created_at.desc())
+         .offset(offset).limit(limit))
+    result = []
+    for c, event_count in q.all():
+        result.append(CaseResponse(
+            case_id=c.case_id,
+            customer_id=c.customer_id,
+            risk_category=c.risk_category,
+            amount_at_risk=c.amount_at_risk,
+            currency=c.currency,
+            current_state=c.current_state,
+            event_count=event_count or 0,
+            risk_level=_json_get(c.risk_assessment, "risk_level"),
+            cause_category=_json_get(c.diagnosis, "cause_category"),
+            recovery_probability=_json_get(c.prediction, "recovery_probability"),
+            expected_recoverable_value=c.expected_recoverable_value,
+            recommended_action=_json_get(c.recommendation, "top_candidate", "action_type"),
+            policy_status=_json_get(c.policy_decision, "status"),
+            execution_status=_json_get(c.execution_record, "status"),
+            outcome_status=_json_get(c.outcome, "status"),
+            actual_amount_recovered=_scalar(_json_get(c.outcome, "actual_amount_recovered")),
+        ))
     return result
 
 @app.get('/dashboard/metrics', response_model=DashboardMetricsResponse)
 def get_dashboard_metrics(db: Session = Depends(get_db)):
-    repo = SqlAlchemyCaseRepository(db)
     cases = db.query(CaseModel).all()
-    
+
     total_risk = 0.0
-    active = 0
-    high_crit = 0
-    pending = 0
-    waiting = 0
+    active = high_crit = pending = waiting = 0
     opportunities = 0.0
     recovered = 0.0
-    
+    _terminal = {'FULLY_RECOVERED', 'PARTIALLY_RECOVERED', 'CLOSED_NOT_RECOVERED', 'STOPPED', 'DENIED'}
+
     for c in cases:
-        case = repo.get_by_id(c.case_id)
-        if not case: continue
-        
-        total_risk += float(case.amount_at_risk.amount if hasattr(case.amount_at_risk, 'amount') else case.amount_at_risk)
-        
-        state_val = case.current_state.value if hasattr(case.current_state, 'value') else str(case.current_state)
-        if state_val not in ['VERIFICATION_COMPLETED', 'CLOSED']:
+        total_risk += float(c.amount_at_risk or 0)
+
+        state_val = c.current_state.value if hasattr(c.current_state, 'value') else str(c.current_state)
+        if state_val not in _terminal:
             active += 1
-            
-        if case.risk_assessment and case.risk_assessment.risk_level in ['HIGH', 'CRITICAL']:
+
+        if _json_get(c.risk_assessment, "risk_level") in ('HIGH', 'CRITICAL'):
             high_crit += 1
-            
-        if hasattr(case, 'policy_decision') and case.policy_decision:
-            pol_val = case.policy_decision.status.value if hasattr(case.policy_decision.status, 'value') else str(case.policy_decision.status)
-            if pol_val == 'ESCALATE':
-                pending += 1
-            elif pol_val == 'WAIT':
-                waiting += 1
-                
-        if hasattr(case, 'recommendation') and case.recommendation and case.recommendation.top_candidate:
-            opportunities += float(case.recommendation.top_candidate.expected_recoverable_value)
-            
-        if hasattr(case, 'outcome') and case.outcome:
-            recovered += float(case.outcome.actual_amount_recovered.amount if hasattr(case.outcome.actual_amount_recovered, 'amount') else case.outcome.actual_amount_recovered)
-            
+
+        pol_val = _json_get(c.policy_decision, "status")
+        if pol_val == 'ESCALATE':
+            pending += 1
+        elif pol_val == 'WAIT':
+            waiting += 1
+
+        erv = _json_get(c.recommendation, "top_candidate", "expected_recoverable_value")
+        if erv is not None:
+            opportunities += float(erv)
+
+        amt = _scalar(_json_get(c.outcome, "actual_amount_recovered"))
+        if amt is not None:
+            recovered += float(amt)
+
     return DashboardMetricsResponse(
         total_revenue_at_risk=total_risk,
         active_cases=active,
