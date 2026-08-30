@@ -205,11 +205,24 @@ class MLTrainingEngine:
         test_metrics = self._evaluate(best_pipeline, X_test, y_test)
         
         runtime = time.time() - start_time
-        
+
+        # Quality gate: a model that does not beat "always predict majority" by a
+        # margin is not fit to serve even as shadow telemetry. It is still saved
+        # (for inspection) but flagged so the registry / predictor can refuse it.
+        min_roc_auc = float(os.getenv("ML_MIN_ROC_AUC", "0.55"))
+        min_test_rows = int(os.getenv("ML_MIN_TEST_ROWS", "200"))
+        roc = test_metrics.get("roc_auc")
+        gate_reasons = []
+        if min_roc_auc > 0 and (roc is None or roc < min_roc_auc):
+            gate_reasons.append(f"test ROC-AUC {roc} < {min_roc_auc}")
+        if min_test_rows > 0 and len(X_test) < min_test_rows:
+            gate_reasons.append(f"test set {len(X_test)} rows < {min_test_rows}")
+        model_status = "SELECTED" if not gate_reasons else "REJECTED_LOW_QUALITY"
+
         # 4. Save Artifacts
         artifact_path = os.path.join(self.output_dir, f"{self.run_id}_model.joblib")
         joblib.dump(best_pipeline, artifact_path)
-        
+
         # 5. Save Metadata Registry Entry
         metadata = {
             "model_id": self.run_id,
@@ -222,7 +235,9 @@ class MLTrainingEngine:
             "preprocessing_pipeline": self.spec.get("preprocessing_steps", []),
             "model_version": best_model_name,
             "feature_schema_version": "1.0",
-            "status": "SELECTED",
+            "status": model_status,
+            "quality_gate": {"passed": not gate_reasons, "reasons": gate_reasons,
+                             "min_roc_auc": min_roc_auc, "min_test_rows": min_test_rows},
             "selected_model": best_model_name,
             "candidate_results": results,
             "final_test_metrics": test_metrics,

@@ -39,6 +39,9 @@ class MLPaymentFailurePredictor:
                     except Exception:
                         continue
                         
+                    if meta.get("status") == "REJECTED_LOW_QUALITY":
+                        # Failed the training quality gate — not fit to serve.
+                        continue
                     if meta.get("dataset_id") == dataset_id and meta.get("task") == "payment-failure-risk":
                         self.metadata = meta
                         artifact_path = self.metadata.get("artifact_path")
