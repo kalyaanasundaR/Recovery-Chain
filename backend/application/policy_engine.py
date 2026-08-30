@@ -1,5 +1,5 @@
 import uuid
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel
 
@@ -18,6 +18,22 @@ class MerchantPolicy(BaseModel):
     communication_max_messages_24h: int = 2
     financial_max_automated_amount: float = 5000.0
 
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+class PolicyContext(BaseModel):
+    """Real recovery history for a case, sourced from the execution_attempts
+    ledger. When supplied, the Policy Engine uses this instead of the legacy
+    proxy on `case.linked_events` (which counted the triggering failure itself
+    as a prior attempt and made the standard retry flow perpetually WAIT)."""
+    prior_payment_attempts: int = 0
+    last_payment_attempt_at: Optional[datetime] = None
+    comms_in_last_24h: int = 0
+    consent_ok: bool = True
+    stopped: bool = False
+
 class DeterministicPolicyEngine:
     """
     Evaluates actions deterministically against a MerchantPolicy.
@@ -27,13 +43,33 @@ class DeterministicPolicyEngine:
     def __init__(self, policy: MerchantPolicy = MerchantPolicy()):
         self.policy = policy
         
-    def evaluate(self, case: RecoveryCase) -> PolicyDecision:
+    def evaluate(self, case: RecoveryCase, context: Optional[PolicyContext] = None) -> PolicyDecision:
         rules_evaluated: List[RuleResult] = []
         failed_rules: List[RuleResult] = []
-        
+
         status = PolicyDecisionStatus.PERMITTED
         reason = "All policy rules passed."
-        
+
+        # 0. Hard stops (only when a real context is supplied)
+        if context is not None and context.stopped:
+            return PolicyDecision(
+                decision_id=f"pol_{uuid.uuid4().hex[:8]}",
+                status=PolicyDecisionStatus.DENIED,
+                policy_version=self.policy.version,
+                rules_evaluated=[],
+                failed_rules=[RuleResult(rule_name="StopRule", passed=False, details="Case is STOPPED; no further automated action.")],
+                reason="Case is STOPPED.",
+            )
+        if context is not None and not context.consent_ok:
+            return PolicyDecision(
+                decision_id=f"pol_{uuid.uuid4().hex[:8]}",
+                status=PolicyDecisionStatus.ESCALATE,
+                policy_version=self.policy.version,
+                rules_evaluated=[],
+                failed_rules=[RuleResult(rule_name="ConsentCheck", passed=False, details="No customer consent on file for outreach.")],
+                reason="Missing customer consent.",
+            )
+
         # 1. Evidence Verification
         if not case.recommendation or not case.recommendation.top_candidate:
             return PolicyDecision(
@@ -70,45 +106,50 @@ class DeterministicPolicyEngine:
             rules_evaluated.append(RuleResult(rule_name="FinancialAutomatedLimit", passed=True, details="Amount within limit."))
             
         # 4. Action-Specific Limits
+        now = datetime.now(timezone.utc)
         if action == ActionType.RETRY_PAYMENT or action == ActionType.RETRY_BILLING:
-            # Fake retry count check by counting failure events in the past 24h
-            # Real impl would track execution events, but we don't have execution yet
-            # So we approximate via event history
-            now = datetime.now(timezone.utc)
-            recent_failures = [
-                e for e in case.linked_events 
-                if (now - e.timestamp).total_seconds() <= (self.policy.payment_retry_cooldown_hours * 3600)
-            ]
-            
-            if len(case.linked_events) >= self.policy.payment_max_retries:
+            if context is not None:
+                # Real history from the execution_attempts ledger.
+                attempt_count = context.prior_payment_attempts
+                in_cooldown = (
+                    context.last_payment_attempt_at is not None
+                    and (now - _aware(context.last_payment_attempt_at)).total_seconds()
+                    <= (self.policy.payment_retry_cooldown_hours * 3600)
+                )
+            else:
+                # Legacy proxy: count linked failure events (kept so unit tests
+                # that pass hand-built cases without a ledger still hold).
+                recent = [e for e in case.linked_events
+                          if (now - e.timestamp).total_seconds() <= (self.policy.payment_retry_cooldown_hours * 3600)]
+                attempt_count = len(case.linked_events)
+                in_cooldown = len(recent) > 0
+
+            if attempt_count >= self.policy.payment_max_retries:
                 r = RuleResult(rule_name="PaymentMaxRetries", passed=False, details="Maximum payment retries exceeded.")
                 rules_evaluated.append(r)
                 failed_rules.append(r)
-                # DENIED takes precedence over ESCALATE
                 status = PolicyDecisionStatus.DENIED
                 reason = r.details
             else:
                 rules_evaluated.append(RuleResult(rule_name="PaymentMaxRetries", passed=True, details="Under max retries."))
-                
-            if len(recent_failures) > 0:
+
+            if in_cooldown:
                 r = RuleResult(rule_name="PaymentRetryCooldown", passed=False, details="Active cooldown period.")
                 rules_evaluated.append(r)
                 failed_rules.append(r)
-                # If it's already DENIED, keep DENIED. Otherwise WAIT.
                 if status != PolicyDecisionStatus.DENIED and status != PolicyDecisionStatus.ESCALATE:
                     status = PolicyDecisionStatus.WAIT
                     reason = r.details
             else:
                 rules_evaluated.append(RuleResult(rule_name="PaymentRetryCooldown", passed=True, details="No active cooldown."))
-                
+
         elif "REMINDER" in action.value:
-            # We mock a communication limit check similarly
-            now = datetime.now(timezone.utc)
-            recent_failures = [
-                e for e in case.linked_events 
-                if (now - e.timestamp).total_seconds() <= 24 * 3600
-            ]
-            if len(recent_failures) > self.policy.communication_max_messages_24h:
+            if context is not None:
+                comms = context.comms_in_last_24h
+            else:
+                comms = len([e for e in case.linked_events
+                             if (now - e.timestamp).total_seconds() <= 24 * 3600])
+            if comms > self.policy.communication_max_messages_24h:
                 r = RuleResult(rule_name="CommunicationMaxMessages", passed=False, details="Max communications exceeded in 24h.")
                 rules_evaluated.append(r)
                 failed_rules.append(r)

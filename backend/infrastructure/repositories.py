@@ -31,12 +31,21 @@ class InMemoryCaseRepository(ICaseRepository):
         return None
 
 from sqlalchemy.orm import Session
-from infrastructure.orm import CaseModel, EventModel, AuditModel, IdempotencyRecord
+from infrastructure.orm import CaseModel, EventModel, AuditModel, IdempotencyRecord, ExecutionAttemptModel
 from domain.interfaces import IAuditRecorder
 import uuid
 import json
 from domain.models import Money
-from datetime import timezone
+from datetime import datetime, timezone, timedelta
+
+
+_PAYMENT_ACTIONS = {"RETRY_PAYMENT", "RETRY_BILLING"}
+
+
+def _attempt_channel(action_type: str) -> str:
+    if action_type in _PAYMENT_ACTIONS:
+        return "payment"
+    return "communication"
 
 class SqlAlchemyAuditRecorder(IAuditRecorder):
     def __init__(self, db: Session):
@@ -93,6 +102,37 @@ class SqlAlchemyCaseRepository(ICaseRepository):
         rec = IdempotencyRecord(idempotency_key=key, execution_record=execution_record)
         self.db.add(rec)
         self.db.flush()
+
+    # -- execution attempt ledger ------------------------------------------
+    def record_execution_attempt(self, case_id: str, action_type: str, status: str,
+                                 idempotency_key: str = None) -> None:
+        self.db.add(ExecutionAttemptModel(
+            id=uuid.uuid4().hex,
+            case_id=case_id,
+            action_type=action_type,
+            channel=_attempt_channel(action_type),
+            status=status,
+            idempotency_key=idempotency_key,
+        ))
+        self.db.flush()
+
+    def get_policy_context(self, case_id: str):
+        """Build a PolicyContext from the execution_attempts ledger."""
+        from application.policy_engine import PolicyContext
+        now = datetime.now(timezone.utc)
+        rows = (self.db.query(ExecutionAttemptModel)
+                .filter(ExecutionAttemptModel.case_id == case_id).all())
+        pay = [r for r in rows if r.channel == "payment"]
+        comms = [r for r in rows if r.channel == "communication"]
+        last_pay = max((r.created_at for r in pay), default=None)
+        window = now - timedelta(hours=24)
+        comms_24h = sum(1 for r in comms if r.created_at and
+                        (r.created_at if r.created_at.tzinfo else r.created_at.replace(tzinfo=timezone.utc)) >= window)
+        return PolicyContext(
+            prior_payment_attempts=len(pay),
+            last_payment_attempt_at=last_pay,
+            comms_in_last_24h=comms_24h,
+        )
 
     def save(self, case: RecoveryCase) -> None:
         # Check if case exists

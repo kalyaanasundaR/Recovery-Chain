@@ -644,13 +644,17 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
         
         # Policy Engine
         if case.candidate_action:
-            case.policy_decision = policy_engine.evaluate(case)
+            try:
+                _pctx = case_repo.get_policy_context(case.case_id)
+            except Exception:
+                _pctx = None
+            case.policy_decision = policy_engine.evaluate(case, context=_pctx)
             case_repo.save(case)
             
             # Sandbox Execution
             from domain.models import PolicyDecisionStatus
             if case.policy_decision.status == PolicyDecisionStatus.PERMITTED:
-                case.execution_record = agent.execute(case, case.candidate_action.action_type)
+                case.execution_record = agent.execute(case, case.candidate_action.action_type, repo=case_repo)
                 case_repo.save(case)
                 
         # Verification (Mock)
