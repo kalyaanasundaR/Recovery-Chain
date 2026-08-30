@@ -51,12 +51,6 @@ class SqlAlchemyAuditRecorder(IAuditRecorder):
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id_for_update(self, case_id: str):
-        from sqlalchemy.orm import Session
-        c = self.db.query(CaseModel).with_for_update().filter(CaseModel.case_id == case_id).first()
-        if not c: return None
-        return self.get_case(case_id) # Using existing mapping
-
     def has_idempotency_key(self, key: str) -> bool:
         return self.db.query(IdempotencyRecord).filter(IdempotencyRecord.idempotency_key == key).first() is not None
 
@@ -89,7 +83,7 @@ class SqlAlchemyCaseRepository(ICaseRepository):
         from sqlalchemy.orm import Session
         c = self.db.query(CaseModel).with_for_update().filter(CaseModel.case_id == case_id).first()
         if not c: return None
-        return self.get_case(case_id) # Using existing mapping
+        return self.get_by_id(case_id)
 
     def has_idempotency_key(self, key: str) -> bool:
         return self.db.query(IdempotencyRecord).filter(IdempotencyRecord.idempotency_key == key).first() is not None

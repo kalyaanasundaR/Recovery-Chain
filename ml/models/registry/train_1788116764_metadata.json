@@ -1,0 +1,122 @@
+{
+  "model_id": "train_1788116764",
+  "dataset_id": "ds_1f3f8307",
+  "task": "payment-failure-risk",
+  "target_column": "payment_result",
+  "canonical_target_meaning": "Predicts risk of payment failure before billing attempt.",
+  "feature_columns": [
+    "monetary_value"
+  ],
+  "canonical_feature_mapping": {
+    "monetary_value": "AMOUNT"
+  },
+  "preprocessing_pipeline": [
+    "Impute missing numeric values via grouped historical medians strictly before cutoff.",
+    "Encode low-cardinality categoricals (OHE or Target Encoding securely inside CV folds).",
+    "Generate rolling historical features strictly partitioned by entity and time cutoff."
+  ],
+  "model_version": "logistic_regression",
+  "feature_schema_version": "1.0",
+  "status": "SELECTED",
+  "quality_gate": {
+    "passed": true,
+    "reasons": [],
+    "min_roc_auc": 0.0,
+    "min_test_rows": 0
+  },
+  "selected_model": "logistic_regression",
+  "candidate_results": {
+    "logistic_regression": {
+      "train_metrics": {
+        "roc_auc": 0.5,
+        "pr_auc": 0.5142857142857142,
+        "brier_score": 0.25,
+        "precision": 0.5142857142857142,
+        "recall": 1.0,
+        "f1": 0.6792452830188679,
+        "positive_rate": 0.5142857142857142,
+        "confusion_matrix": {
+          "tn": 0,
+          "fp": 17,
+          "fn": 0,
+          "tp": 18
+        },
+        "threshold": 0.5
+      },
+      "val_metrics": {
+        "roc_auc": 0.5,
+        "pr_auc": 0.42857142857142855,
+        "brier_score": 0.25,
+        "precision": 0.42857142857142855,
+        "recall": 1.0,
+        "f1": 0.6,
+        "positive_rate": 0.42857142857142855,
+        "confusion_matrix": {
+          "tn": 0,
+          "fp": 4,
+          "fn": 0,
+          "tp": 3
+        },
+        "threshold": 0.5
+      }
+    },
+    "xgboost": {
+      "train_metrics": {
+        "roc_auc": 0.9607843137254901,
+        "pr_auc": 0.9500891265597149,
+        "brier_score": 0.12815770506858826,
+        "precision": 0.8181818181818182,
+        "recall": 1.0,
+        "f1": 0.9,
+        "positive_rate": 0.5142857142857142,
+        "confusion_matrix": {
+          "tn": 13,
+          "fp": 4,
+          "fn": 0,
+          "tp": 18
+        },
+        "threshold": 0.5
+      },
+      "val_metrics": {
+        "roc_auc": 0.5,
+        "pr_auc": 0.42857142857142855,
+        "brier_score": 0.26450762152671814,
+        "precision": 0.42857142857142855,
+        "recall": 1.0,
+        "f1": 0.6,
+        "positive_rate": 0.42857142857142855,
+        "confusion_matrix": {
+          "tn": 0,
+          "fp": 4,
+          "fn": 0,
+          "tp": 3
+        },
+        "threshold": 0.5
+      }
+    }
+  },
+  "final_test_metrics": {
+    "roc_auc": 0.5,
+    "pr_auc": 0.5,
+    "brier_score": 0.25,
+    "precision": 0.5,
+    "recall": 1.0,
+    "f1": 0.6666666666666666,
+    "positive_rate": 0.5,
+    "confusion_matrix": {
+      "tn": 0,
+      "fp": 4,
+      "fn": 0,
+      "tp": 4
+    },
+    "threshold": 0.5
+  },
+  "artifact_path": "ml/models/registry\\train_1788116764_model.joblib",
+  "created_at": "2026-08-30T19:06:04.887665+00:00",
+  "training_runtime_sec": 0.1,
+  "split_row_counts": {
+    "train": 35,
+    "validation": 7,
+    "test": 8
+  }
+}

@@ -286,14 +286,21 @@ export default function CaseDetail() {
                         source="Outcome Auditor & Verification Engine"
                     >
                         <div className="grid grid-cols-2 gap-3 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 font-mono text-xs">
-                            <div>
-                                <span className="text-slate-500 block text-[10px] uppercase">Verified Recovered</span>
-                                <span className="font-bold text-emerald-400">${Number(data.outcome?.actual_amount_recovered || 0).toFixed(2)}</span>
-                            </div>
-                            <div>
-                                <span className="text-slate-500 block text-[10px] uppercase">Residual Recovery Gap</span>
-                                <span className="font-bold text-rose-400">${(Number(data.amount_at_risk || 0) - Number(data.outcome?.actual_amount_recovered || 0)).toFixed(2)}</span>
-                            </div>
+                            {(() => {
+                                const recRaw = data.outcome?.actual_amount_recovered;
+                                const rec = Number((recRaw && typeof recRaw === 'object') ? recRaw.amount : recRaw || 0);
+                                const gap = Number(data.amount_at_risk || 0) - rec;
+                                return (<>
+                                    <div>
+                                        <span className="text-slate-500 block text-[10px] uppercase">Verified Recovered</span>
+                                        <span className="font-bold text-emerald-400">${rec.toFixed(2)}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-slate-500 block text-[10px] uppercase">Residual Recovery Gap</span>
+                                        <span className="font-bold text-rose-400">${gap.toFixed(2)}</span>
+                                    </div>
+                                </>);
+                            })()}
                         </div>
                     </TimelineNode>
                 </div>
