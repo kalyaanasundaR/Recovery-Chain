@@ -105,7 +105,7 @@ class SemanticMapper:
         settle_words = {'settlement', 'settled', 'cleared'}
         time_words = {'timestamp', 'datetime', 'date', 'time', 'created', 'event', 'txn_time', 'paid', 'processed', 'txn_datetime'}
         has_settle = any(w in norm_col for w in settle_words)
-        has_time = any(w in tokens for w in time_words) or any(w in norm_col for w in ['_date', 'date_', '_time', 'time_', 'created_at', 'paid_on', 'processed_on', 'event_time', 'txn_time', 'transaction_date', 'invoice_date', 'event_date', 'txn_datetime'])
+        has_time = any(w in tokens for w in time_words) or any(w in norm_col for w in ['_date', 'date_', '_time', 'time_', '_at', 'created_at', 'attempted_at', 'attempted', 'initiated', 'occurred', 'paid_on', 'processed_on', 'event_time', 'txn_time', 'transaction_date', 'invoice_date', 'event_date', 'txn_datetime'])
         
         time_score = 0.0
         evidence_time = []
@@ -176,7 +176,9 @@ class SemanticMapper:
         # ----------------------------------------------------
         # 3. IDENTIFIERS (CUSTOMER_ID, ACCOUNT_ID, ENTITY_ID, TRANSACTION_ID)
         # ----------------------------------------------------
-        cust_words = {'customer', 'client', 'cust', 'user', 'member', 'party', 'debtor', 'subscriber'}
+        cust_words = {'customer', 'client', 'cust', 'user', 'member', 'party', 'debtor', 'subscriber',
+                      'seller', 'shopper', 'buyer', 'payer', 'payee', 'merchant', 'vendor',
+                      'borrower', 'holder', 'tenant', 'contact', 'company', 'org', 'account_holder'}
         acct_words = {'account', 'acc', 'acct'}
         entity_words = {'entity'}
         tx_words = {'transaction', 'txn', 'tx', 'payment', 'receipt', 'order', 'event', 'invoice'}
@@ -220,22 +222,59 @@ class SemanticMapper:
         # ----------------------------------------------------
         # 4. PAYMENT_METHOD / STATUS / OUTCOME / TARGET
         # ----------------------------------------------------
+        # 4a. Value-based OUTCOME detection — a low-cardinality column whose
+        # values look like pass/fail states is an outcome no matter what it is
+        # named (paid_status, settlement, result, is_paid, state, ...).
+        # Unambiguous outcome words — name does not matter if the values say this.
+        OUTCOME_STRONG = {
+            'paid', 'unpaid', 'failed', 'fail', 'failure', 'success', 'successful',
+            'returned', 'declined', 'decline', 'settled', 'completed',
+            'pending', 'overdue', 'collected', 'chargeback', 'refunded',
+            'recovered', 'not_recovered', 'won', 'lost', 'delinquent', 'default',
+        }
+        # Ambiguous booleans — only an outcome if the column name also hints at it.
+        OUTCOME_WEAK = {'yes', 'no', 'true', 'false', '0', '1', 'y', 'n', 't', 'f', 'paid', 'unpaid'}
+        val_set = set()
+        if not is_datetime and not is_date_values and (
+            (not is_numeric and 2 <= unique_cnt <= 6) or is_bool or (is_numeric and unique_cnt == 2)
+        ):
+            val_set = set(series.dropna().astype(str).str.strip().str.lower().unique())
+        name_hints_outcome = any(t in ('status', 'state', 'result', 'outcome', 'paid', 'failed',
+                                       'flag', 'settlement', 'settled', 'target', 'label')
+                                 for t in tokens) or 'paid' in norm_col or 'status' in norm_col
+        strong_hit = bool(val_set) and (len(val_set & OUTCOME_STRONG) / len(val_set)) >= 0.5
+        weak_hit = bool(val_set) and name_hints_outcome and (len(val_set & OUTCOME_WEAK) / len(val_set)) >= 0.6
+        if strong_hit or weak_hit:
+            candidates[CanonicalField.OUTCOME.value] = (
+                0.92 if not is_leakage_col else 0.4,
+                [f'Values look like pass/fail outcomes: {", ".join(sorted(val_set)[:6])}.'],
+            )
+
         pay_method_words = {'payment_method', 'payment_type', 'pay_method', 'card_type', 'pay_type'}
         has_pay_method = any(w in tokens for w in pay_method_words) or any(w in norm_col for w in ['payment_method', 'payment_type', 'pay_method', 'card_type'])
         if has_pay_method and unique_cnt <= 20:
             candidates[CanonicalField.PAYMENT_METHOD.value] = (0.85, ['Name implies payment method channel.'])
             
         target_words = {'target', 'label', 'target_late'}
-        outcome_words = {'outcome', 'failed', 'is_failed', 'payment_failed', 'failure', 'failure_indicator', 'recovery_flag', 'default_flag', 'settlement_result', 'payment_result', 'recovery_status', 'result', 'delinquent', 'churn', 'is_churn', 'payment_status', 'late', 'target_late'}
+        outcome_words = {'outcome', 'failed', 'is_failed', 'payment_failed', 'failure', 'failure_indicator', 'recovery_flag', 'default_flag', 'settlement_result', 'payment_result', 'recovery_status', 'result', 'delinquent', 'churn', 'is_churn', 'payment_status', 'paid_status', 'pay_status', 'paid', 'unpaid', 'is_paid', 'settlement', 'settled', 'collected', 'late', 'target_late'}
         status_words = {'status', 'state', 'stage', 'current_status', 'lifecycle_stage'}
-        
+
         has_target = any(w in tokens for w in target_words) or any(w in norm_col for w in ['target', 'label', 'target_late'])
-        has_outcome = any(w in tokens for w in outcome_words) or any(w in norm_col for w in ['outcome', 'failed', 'failure', 'settlement_result', 'payment_result', 'recovery_status', 'payment_status', 'is_failed', 'recovery_flag', 'target_late'])
+        has_outcome = any(w in tokens for w in outcome_words) or any(w in norm_col for w in ['outcome', 'failed', 'failure', 'settlement_result', 'payment_result', 'recovery_status', 'payment_status', 'paid_status', 'pay_status', 'is_paid', 'is_failed', 'recovery_flag', 'target_late'])
         has_status = any(w in tokens for w in status_words) or 'status' in norm_col
-        
+
+        # A name-only OUTCOME hit (no supporting values) must still look like a
+        # label: not a date, and low cardinality. This stops "failure" inside
+        # "prior_failures" / "failure_code" and "settlement" inside
+        # "settlement_date" from being mistaken for the target.
+        if not (strong_hit or weak_hit):
+            if is_datetime or is_date_values or unique_cnt > 3:
+                has_target = has_outcome = False
+
         is_binary_or_low_card = (is_bool or (2 <= unique_cnt <= 10 and not is_datetime and not is_date_values))
-        
-        if (has_target or has_outcome or has_status) and not has_pay_method:
+
+        if (has_target or has_outcome or has_status) and not has_pay_method \
+                and not is_datetime and not is_date_values:
             if unique_cnt > 15:
                 if has_status:
                     candidates[CanonicalField.STATUS.value] = (0.7, ['High-cardinality status/state field.'])
