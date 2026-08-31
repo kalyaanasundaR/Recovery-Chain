@@ -75,10 +75,10 @@ class DeterministicBaselinePredictor:
         elif cat == RootCauseCategory.UNRESOLVED_DISPUTE.value:
             prob -= 0.40 # Requires human resolution
             
-        # Age penalty
-        # Drop probability by 5% every 24 hours
+        # Age penalty: recovery odds fade as a debt gets older, but a 30–90 day
+        # overdue invoice is still very collectable. ~1%/day, capped at -40%.
         days_old = features["age_hours"] / 24.0
-        prob -= (days_old * 0.05)
+        prob -= min(0.40, days_old * 0.01)
         
         # Bound probability between 0 and 1
         prob = max(0.0, min(1.0, prob))

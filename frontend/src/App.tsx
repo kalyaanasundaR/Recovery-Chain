@@ -1,26 +1,23 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import AppShell from './components/AppShell';
-import Dashboard from './pages/Dashboard';
-import CaseDetail from './pages/CaseDetail';
-import Cases from './pages/Cases';
-import DatasetLibrary from './pages/DatasetLibrary';
-import DatasetAnalysis from './pages/DatasetAnalysis';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Shell from './Shell';
+import Home from './pages/Home';
+import Run from './pages/Run';
+import CasesList from './pages/CasesList';
+import CaseView from './pages/CaseView';
 
-function App() {
-  return (
-    <BrowserRouter>
-      <AppShell>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/cases" element={<Cases />} />
-          <Route path="/case/:caseId" element={<CaseDetail />} />
-          <Route path="/datasets" element={<DatasetLibrary />} />
-          <Route path="/dataset/:datasetId" element={<DatasetAnalysis />} />
-        </Routes>
-      </AppShell>
-    </BrowserRouter>
-  );
+export default function App() {
+    return (
+        <BrowserRouter>
+            <Shell>
+                <Routes>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/run" element={<Run />} />
+                    <Route path="/cases" element={<CasesList />} />
+                    <Route path="/cases/:caseId" element={<CaseView />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+            </Shell>
+        </BrowserRouter>
+    );
 }
-
-export default App;
