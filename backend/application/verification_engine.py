@@ -30,7 +30,7 @@ class MockOutcomeVerificationAdapter(IOutcomeVerification):
 
     def verify(self, case: RecoveryCase, external_reference: str) -> dict:
         ref = (external_reference or "").lower()
-        src = "SIMULATED_STRIPE_MOCK"
+        src = "SANDBOX_SIMULATION"
 
         if "full" in ref:
             return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": case.amount_at_risk.amount, "source": src}
