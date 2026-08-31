@@ -1,23 +1,25 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Shell from './Shell';
+import Workflow from './workflow/Workflow';
 import Home from './pages/Home';
-import Run from './pages/Run';
 import CasesList from './pages/CasesList';
 import CaseView from './pages/CaseView';
 
 export default function App() {
     return (
         <BrowserRouter>
-            <Shell>
-                <Routes>
-                    <Route path="/" element={<Home />} />
-                    <Route path="/run" element={<Run />} />
-                    <Route path="/cases" element={<CasesList />} />
-                    <Route path="/cases/:caseId" element={<CaseView />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-            </Shell>
+            <Routes>
+                {/* primary experience — the guided workflow, its own full-screen chrome */}
+                <Route path="/" element={<Workflow />} />
+
+                {/* secondary / exploration views */}
+                <Route path="/overview" element={<Shell><Home /></Shell>} />
+                <Route path="/cases" element={<Shell><CasesList /></Shell>} />
+                <Route path="/cases/:caseId" element={<Shell><CaseView /></Shell>} />
+
+                <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
         </BrowserRouter>
     );
 }

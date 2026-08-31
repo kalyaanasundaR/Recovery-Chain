@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listCases } from '../lib/api';
-import { money, pct, safetyCheck, outcome, riskWord, ACTION } from '../lib/format';
+import { money, pct, policyVerdict as safetyCheck, outcomeVerdict as outcome, riskWord, ACTION } from '../lib/format';
 import { Card, Pill, Spinner, ErrorNote, Empty } from '../ui';
 
 const FILTERS = [
