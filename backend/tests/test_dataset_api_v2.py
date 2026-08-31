@@ -84,5 +84,6 @@ def test_multiple_datasets_remain_isolated(mock_upload_file):
     ds1_data = client.get(f"/datasets/{ds1_id}").json()
     ds2_data = client.get(f"/datasets/{ds2_id}").json()
     
-    assert ds1_data["filename"] == fname1
-    assert ds2_data["filename"] == fname2
+    # stored filename is dataset-scoped (collision-proof); display name is original
+    assert ds1_data["filename"].endswith(fname1) and ds1_data["name"] == fname1
+    assert ds2_data["filename"].endswith(fname2) and ds2_data["name"] == fname2

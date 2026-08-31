@@ -34,13 +34,14 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
     safe_filename = "".join(c for c in file.filename if c.isalnum() or c in ['.', '_', '-'])
     if not safe_filename or safe_filename.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid safe filename.")
-        
-    file_path = os.path.join(service.dataset_dir, safe_filename)
-    
-    # Do not overwrite existing approved datasets
-    if os.path.exists(file_path):
-        raise HTTPException(status_code=400, detail="Dataset file already exists.")
-        
+
+    # Store under a unique, dataset-scoped name so re-uploading the same file
+    # never collides. The display name keeps the original.
+    ds_id = f"ds_{uuid.uuid4().hex[:8]}"
+    stored_filename = f"{ds_id}_{safe_filename}"
+    os.makedirs(service.dataset_dir, exist_ok=True)
+    file_path = os.path.join(service.dataset_dir, stored_filename)
+
     # Chunked write with size limit
     bytes_written = 0
     oversize = False
@@ -63,11 +64,10 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=413, detail="File too large. Maximum size is 500MB.")
         
     size = os.path.getsize(file_path)
-    ds_id = f"ds_{uuid.uuid4().hex[:8]}"
     new_ds = DatasetMetadataModel(
         dataset_id=ds_id,
         name=safe_filename,
-        filename=safe_filename,
+        filename=stored_filename,
         file_type=ext,
         file_size_bytes=size,
         upload_timestamp=datetime.now(timezone.utc),
@@ -75,7 +75,7 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
     )
     db.add(new_ds)
     db.commit()
-    
+
     return {"status": "success", "dataset_id": ds_id}
 
 
