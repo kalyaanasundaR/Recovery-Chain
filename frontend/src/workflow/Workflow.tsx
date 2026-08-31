@@ -14,12 +14,11 @@ import S05 from './steps/S05Connection';
 import S06 from './steps/S06Detection';
 import S07 from './steps/S07Analysis';
 import S08 from './steps/S08Decision';
-import S09 from './steps/S09Policy';
-import S10 from './steps/S10Recovery';
-import S11 from './steps/S11Result';
+import S09 from './steps/S10Recovery';
+import S10 from './steps/S11Result';
 
 const Backdrop = lazy(() => import('./Backdrop'));
-const PANELS = [S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11];
+const PANELS = [S01, S02, S03, S04, S05, S06, S07, S08, S09, S10];
 
 export default function Workflow() {
     const [idx, setIdx] = useState(0);
@@ -61,7 +60,7 @@ export default function Workflow() {
                         >
                             <Sparkles size={13} /> motion
                         </button>
-                        <span>Step {STEPS[idx].n} / 11</span>
+                        <span>Step {STEPS[idx].n} / 10</span>
                     </div>
                 </div>
                 <div className="h-0.5 bg-[--line]">

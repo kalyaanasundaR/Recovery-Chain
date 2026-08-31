@@ -1,42 +1,46 @@
 import React, { useEffect } from 'react';
 import { StepProps } from '../types';
 import { useSnap } from './useSnap';
-import { Spinner, ErrorNote, Note, Row } from '../../ui';
-import { money, moneyMaybe, pct, ACTION, WHY_FAILED } from '../../lib/format';
+import { Spinner, ErrorNote, Note, Row, BigStat } from '../../ui';
+import { money, pct, ACTION, WHY_FAILED, RULE_LABEL, policyVerdict } from '../../lib/format';
 
+/** Merged "Decision & policy" — what the rules engine proposes AND whether the
+ *  PolicyEngine authorises it, on one screen. */
 export default function S08Decision({ ctx, patch, next, setAction }: StepProps) {
     const { snap, loading, err, refresh } = useSnap(ctx, patch);
     useEffect(() => { setAction(snap ? { label: 'Proceed →', onClick: next } : null); }, [snap]);
 
-    if (loading || !snap) return err ? <ErrorNote onRetry={refresh}>{err}</ErrorNote> : <Spinner label="Loading recommendation…" />;
+    if (loading || !snap) return err ? <ErrorNote onRetry={refresh}>{err}</ErrorNote> : <Spinner label="Loading the decision…" />;
 
     const rec = snap.recommendation;
     const top = rec?.top_candidate;
     const dx = snap.diagnosis;
-    const ccy = snap.currency || 'USD';
+    const pol = snap.policy_decision;
+    const ccy = snap.currency || 'INR';
+    const v = policyVerdict(pol?.status);
+    const rules = pol?.rules_evaluated || [];
 
-    if (!top) {
-        return (
-            <div className="max-w-2xl">
-                <h1 className="text-3xl font-bold tracking-tight">No action recommended</h1>
-                <p className="mt-3 text-[--muted]">{rec?.rationale || 'The evaluator found no viable action for this case.'}</p>
-            </div>
-        );
-    }
-
-    const also = (rec.candidates || []).filter((c: any) => c.action_type !== top.action_type);
+    const headline = top
+        ? (ACTION[top.action_type] || top.action_type)
+        : 'No action available';
+    const also = (rec?.candidates || []).filter((c: any) => c.action_type !== top?.action_type);
 
     return (
         <div className="max-w-2xl">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[--faint]">Recommended action</div>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight">{ACTION[top.action_type] || top.action_type}</h1>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">{headline}</h1>
 
-            <ul className="mt-6">
-                {dx && <Row ok>Cause: {WHY_FAILED[dx.cause_category] || dx.cause_category}</Row>}
-                <Row ok>Recovery estimate for this action: {pct(top.estimated_probability)}</Row>
-                <Row ok>Expected value recovered: {money(top.expected_recoverable_value, ccy)}</Row>
-                {top.rationale && <Row>{top.rationale}</Row>}
-            </ul>
+            {/* the proposal */}
+            {top ? (
+                <ul className="mt-6">
+                    {dx && <Row ok>Cause: {WHY_FAILED[dx.cause_category] || dx.cause_category}</Row>}
+                    <Row ok>Recovery estimate for this action: {pct(top.estimated_probability)}</Row>
+                    <Row ok>Expected value recovered: {money(top.expected_recoverable_value, ccy)}</Row>
+                    {top.rationale && <Row>{top.rationale}</Row>}
+                </ul>
+            ) : (
+                <p className="mt-4 text-[--muted]">{rec?.rationale || 'The evaluator found no viable action for this case.'}</p>
+            )}
 
             {also.length > 0 && (
                 <>
@@ -51,10 +55,30 @@ export default function S08Decision({ ctx, patch, next, setAction }: StepProps) 
                 </>
             )}
 
-            <div className="mt-10">
+            {/* the policy gate — same screen */}
+            <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-[--faint]">Policy check</h2>
+            <ul className="mt-2 divide-y divide-[--line] rounded-xl border border-[--line]">
+                {rules.length === 0 && <li className="px-4 py-3 text-sm text-[--muted]">No rules were applicable.</li>}
+                {rules.map((r: any, i: number) => (
+                    <li key={i} className="flex items-start gap-3 px-4 py-3 text-sm">
+                        <span className={r.passed ? 'text-emerald-400' : 'text-amber-400'}>{r.passed ? '✓' : '⚠'}</span>
+                        <span>
+                            <span className="font-medium">{RULE_LABEL[r.rule_name] || r.rule_name}</span>
+                            <span className="block text-[--muted]">{r.details}</span>
+                        </span>
+                    </li>
+                ))}
+            </ul>
+
+            <div className="mt-6">
+                <BigStat label="Policy result" value={v.label} tone={v.tone as any} sub={pol?.reason || v.note} />
+            </div>
+
+            <div className="mt-8">
                 <Note>
-                    Proposed by the <b>rules engine</b> ({rec.engine_version}). This is a proposal only — it does
-                    not run, and it does not bypass the policy check on the next screen.
+                    The <b>rules engine</b> ({rec?.engine_version}) proposes an action — it never runs one. The
+                    <b> PolicyEngine</b> ({pol?.policy_version}) is the only thing that can authorise it, and
+                    execution only happens after approval. No component bypasses this.
                 </Note>
             </div>
         </div>

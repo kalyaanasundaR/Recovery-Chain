@@ -442,7 +442,7 @@ def recommend_action(case_id: str, db: Session = Depends(get_db)):
 
     case.recommendation = recommendation
     if recommendation.top_candidate:
-        _cur = case.amount_at_risk.currency if case.amount_at_risk else "USD"
+        _cur = case.amount_at_risk.currency if case.amount_at_risk else "INR"
         case.expected_recoverable_value = Money(
             amount=recommendation.top_candidate.expected_recoverable_value, currency=_cur
         )

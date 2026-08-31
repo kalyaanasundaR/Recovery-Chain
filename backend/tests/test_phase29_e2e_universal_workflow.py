@@ -214,7 +214,7 @@ def test_phase29_universal_bank_dataset_full_lifecycle(tmp_path):
     assert c["case_id"] == case_id
     assert c["risk_category"] == RiskCategory.FAILED_PAYMENT.value
     assert float(str(c['amount_at_risk']).replace('$', '').strip()) > 0
-    assert c["currency"] == "USD"
+    assert c["currency"] == "INR"
     
     # Verify shadow prediction attached
     assert c["recovery_probability"] is not None

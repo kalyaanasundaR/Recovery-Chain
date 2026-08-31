@@ -451,6 +451,30 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read dataset: {str(e)}")
         
+    # Best-effort: train a per-dataset shadow model on THIS dataset before we
+    # replay its rows, so every case is scored by a model fitted on its own data
+    # (falls back to the deterministic baseline if training can't produce a model
+    # that clears the quality gate). Shadow-only — the model never authorises an
+    # action; it only feeds the recovery-probability / ERV estimate.
+    spec = ds.training_suitability or {}
+    if str(spec.get("readiness_status", "")).startswith("ML_TRAINING_READY") and len(df) >= 20:
+        try:
+            from application.ml_training import MLTrainingEngine
+            train_spec = dict(spec)
+            train_spec["dataset_id"] = dataset_id
+            # Honest bar: a model that does not clear 0.55 ROC-AUC is left
+            # REJECTED_LOW_QUALITY and the case pipeline uses the deterministic
+            # baseline instead. Row floor scales down for smaller real datasets.
+            meta = MLTrainingEngine(
+                train_spec, file_path, "ml/models/registry",
+                min_roc_auc=0.55, min_test_rows=200,
+            ).train_and_evaluate()
+            print(f"[generate-cases] trained {dataset_id}: status={meta.get('status')} "
+                  f"roc={meta.get('quality_gate', {}).get('roc_auc')} "
+                  f"model={meta.get('selected_model')}")
+        except Exception as e:
+            print(f"[generate-cases] auto-train skipped for {dataset_id}: {e}")
+
     # Extract mapping
     mappings = ds.recoverchain_signals or []
     canonical_to_original = {}
@@ -596,7 +620,7 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
             external_system=f"Dataset-{dataset_id}",
             external_event_id=f"row_{idx}",
             reference_id=tx_id,
-            amount=Money(amount=amt, currency="USD"),
+            amount=Money(amount=amt, currency="INR"),
             timestamp=ts,
             raw_payload=payload
         )

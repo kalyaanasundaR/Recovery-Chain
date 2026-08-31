@@ -1,9 +1,9 @@
-export const money = (n: any, ccy = 'USD') => {
+export const money = (n: any, ccy = 'INR') => {
     const v = Number(n ?? 0);
     try {
-        return v.toLocaleString(undefined, { style: 'currency', currency: ccy, maximumFractionDigits: 2 });
+        return v.toLocaleString('en-IN', { style: 'currency', currency: ccy, maximumFractionDigits: 2 });
     } catch {
-        return '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 };
 
@@ -11,7 +11,7 @@ export const pct = (n: any) =>
     n === null || n === undefined ? '—' : `${Math.round(Number(n) * 100)}%`;
 
 const amt = (v: any) => (v && typeof v === 'object' ? v.amount : v);
-export const moneyMaybe = (v: any, ccy = 'USD') => money(amt(v), ccy);
+export const moneyMaybe = (v: any, ccy = 'INR') => money(amt(v), ccy);
 
 // plain words for backend enums ------------------------------------------------
 export const WHY_FAILED: Record<string, string> = {
@@ -39,7 +39,7 @@ export const ACTION: Record<string, string> = {
     ESCALATE_COLLECTION: 'Hand to collections',
     SEND_PROMISE_REMINDER: 'Remind about the promised payment',
     REQUEST_NEW_COMMITMENT: 'Ask for a new payment date',
-    ESCALATE_TO_HUMAN: 'Send to a person to decide',
+    ESCALATE_TO_HUMAN: 'Needs human review',
     NO_ACTION_POSSIBLE: 'Nothing to do',
 };
 

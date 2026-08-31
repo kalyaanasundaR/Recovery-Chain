@@ -12,7 +12,7 @@ export default function S07Analysis({ ctx, patch, next, setAction }: StepProps) 
 
     const dx = snap.diagnosis;
     const pred = snap.ml_shadow_prediction;
-    const ccy = snap.currency || 'USD';
+    const ccy = snap.currency || 'INR';
     const others = (ctx.caseCount || 1) > 1;
 
     return (

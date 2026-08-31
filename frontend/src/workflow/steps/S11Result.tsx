@@ -34,7 +34,7 @@ export default function S11Result({ ctx, patch, setAction }: StepProps) {
     }
 
     const o = snap.outcome;
-    const ccy = snap.currency || 'USD';
+    const ccy = snap.currency || 'INR';
     const top = snap.recommendation?.top_candidate;
     const v = outcomeVerdict(o?.status);
 
