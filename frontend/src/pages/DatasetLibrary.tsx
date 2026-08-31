@@ -131,84 +131,39 @@ export default function DatasetLibrary() {
                 </div>
             </div>
 
-            {/* Ingestion & Upload Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Upload Dropzone */}
-                <div 
-                    onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-                    onDragLeave={() => setIsDragOver(false)}
-                    onDrop={handleDrop}
-                    className={`lg:col-span-2 border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center text-center transition-all ${
-                        isDragOver 
-                            ? 'border-blue-500 bg-blue-950/20' 
-                            : 'border-slate-800/90 bg-slate-900/40 hover:border-slate-700'
-                    }`}
-                >
-                    <div className="p-3.5 rounded-2xl bg-blue-950/50 border border-blue-800/60 text-blue-400 mb-3 shadow-lg shadow-blue-950/30">
-                        <UploadCloud size={28} />
-                    </div>
-                    <h3 className="text-base font-bold text-slate-100">
-                        Upload Institutional Bank Dataset
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1 max-w-md">
-                        Drag and drop arbitrary CSV, Parquet, or XLSX files. Column names will automatically profile and map to canonical fields.
-                    </p>
-
-                    <div className="mt-4 flex items-center gap-3">
-                        <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/30 transition-all btn-press">
-                            <span>{uploading ? "Analyzing Ingestion..." : "Browse Files"}</span>
-                            <input 
-                                type="file" 
-                                className="hidden" 
-                                accept=".csv,.parquet,.xlsx" 
-                                onChange={handleFileUpload} 
-                                disabled={uploading}
-                            />
-                        </label>
-                        <button 
-                            onClick={handleSync}
-                            disabled={loading}
-                            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700/80 transition-all btn-press"
-                        >
-                            <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Sync Local
-                        </button>
-                    </div>
-
-                    <div className="mt-3 text-[10px] font-mono text-slate-400 flex items-center gap-3">
-                        <span>Formats: .csv, .parquet, .xlsx</span>
-                        <span>&bull;</span>
-                        <span>Streaming memory bounded</span>
-                    </div>
+            {/* Upload */}
+            <div
+                onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center text-center transition-all ${
+                    isDragOver
+                        ? 'border-blue-500 bg-blue-950/20'
+                        : 'border-slate-800/90 bg-slate-900/40 hover:border-slate-700'
+                }`}
+            >
+                <div className="p-3.5 rounded-2xl bg-blue-950/50 border border-blue-800/60 text-blue-400 mb-3">
+                    <UploadCloud size={28} />
                 </div>
+                <h3 className="text-base font-bold text-slate-100">Upload a dataset</h3>
+                <p className="text-xs text-slate-400 mt-1 max-w-md">
+                    Drop a CSV, Parquet or XLSX. Columns are profiled and mapped to canonical fields
+                    (entity, amount, timestamp, outcome); post-outcome fields are flagged as leakage.
+                </p>
 
-                {/* Ingestion Architecture Rules */}
-                <div className="p-5 rounded-2xl border border-slate-800/80 bg-slate-900/40 flex flex-col justify-between space-y-4">
-                    <div>
-                        <div className="flex items-center gap-2 mb-2">
-                            <Cpu size={16} className="text-blue-400" />
-                            <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-200">
-                                Ingestion Architecture
-                            </h4>
-                        </div>
-                        <ul className="text-xs text-slate-400 space-y-2 leading-relaxed">
-                            <li className="flex items-start gap-2">
-                                <span className="text-blue-400 font-mono font-bold">1.</span>
-                                <span><strong>Streaming Profiler:</strong> Memory-safe bounded chunk inspection.</span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                                <span className="text-blue-400 font-mono font-bold">2.</span>
-                                <span><strong>Semantic Mapping:</strong> Invariant mapping to ENTITY_ID, AMOUNT, TIMESTAMP, OUTCOME.</span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                                <span className="text-blue-400 font-mono font-bold">3.</span>
-                                <span><strong>Leakage Gate:</strong> Auto-detection and exclusion of post-outcome fields.</span>
-                            </li>
-                        </ul>
-                    </div>
-                    
-                    <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[10px] font-mono text-slate-400">
-                        Zero live financial APIs contacted &bull; Pure sandbox ingestion
-                    </div>
+                <div className="mt-4 flex items-center gap-3">
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-all btn-press">
+                        <span>{uploading ? "Uploading…" : "Browse files"}</span>
+                        <input type="file" className="hidden" accept=".csv,.parquet,.xlsx"
+                            onChange={handleFileUpload} disabled={uploading} />
+                    </label>
+                    <button
+                        onClick={handleSync}
+                        disabled={loading}
+                        className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700/80 transition-all btn-press"
+                    >
+                        <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Sync local files
+                    </button>
                 </div>
             </div>
 
