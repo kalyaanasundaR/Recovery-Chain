@@ -1,17 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { StepProps } from '../types';
 import { buildCases, listCases } from '../../lib/api';
-import { ErrorNote, Note, Row, BigStat } from '../../ui';
-
-const STAGES = [
-    'Reading validated records',
-    'Analysing revenue events',
-    'Identifying revenue at risk',
-    'Creating recovery cases',
-];
+import { Spinner, ErrorNote, Note, Row, BigStat } from '../../ui';
 
 export default function S06Detection({ ctx, patch, next, setAction }: StepProps) {
-    const [stage, setStage] = useState(0);
     const [done, setDone] = useState<any>(null);
     const [err, setErr] = useState('');
     const started = useRef(false);
@@ -19,7 +11,6 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
     useEffect(() => {
         if (started.current) return;
         started.current = true;
-        const tick = setInterval(() => setStage(s => Math.min(s + 1, STAGES.length - 1)), 700);
         (async () => {
             try {
                 const build = await buildCases(ctx.importId!, 200);
@@ -27,12 +18,10 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
                 const ids: string[] = build.case_ids || [];
                 const mine = (all || []).filter((c: any) => ids.includes(c.case_id));
                 const active = mine.slice().sort((a: any, b: any) => Number(b.amount_at_risk) - Number(a.amount_at_risk))[0];
-                clearInterval(tick); setStage(STAGES.length - 1);
                 patch({ build, caseIds: ids, caseCount: mine.length, activeCaseId: active?.case_id });
                 setDone(build);
-            } catch (e: any) { clearInterval(tick); setErr(e.message); }
+            } catch (e: any) { setErr(e.message); }
         })();
-        return () => clearInterval(tick);
     }, []);
 
     useEffect(() => { setAction(done ? { label: 'Proceed →', onClick: next } : null); }, [done]);
@@ -51,16 +40,13 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
             <h1 className="text-3xl font-bold tracking-tight">Finding revenue at risk</h1>
 
             {!done && !err && (
-                <ul className="mt-8 space-y-2">
-                    {STAGES.map((s, i) => (
-                        <li key={s} className={`flex items-center gap-3 text-sm ${i < stage ? 'text-[--muted]' : i === stage ? 'text-[--ink]' : 'text-[--faint]'}`}>
-                            <span className={i < stage ? 'text-emerald-400' : i === stage ? 'pulse-soft text-sky-400' : 'text-[--faint]'}>
-                                {i < stage ? '✓' : '•'}
-                            </span>
-                            {s}{i === stage ? '…' : ''}
-                        </li>
-                    ))}
-                </ul>
+                <div className="mt-8 space-y-3">
+                    <Spinner label="Generating recovery cases…" />
+                    <p className="text-sm text-[--muted]">
+                        Each row runs the full pipeline — risk, diagnosis, recovery estimate, recommended
+                        action, policy check — on the server. A large file can take up to a minute.
+                    </p>
+                </div>
             )}
 
             {err && <div className="mt-6"><ErrorNote>{err}</ErrorNote></div>}
