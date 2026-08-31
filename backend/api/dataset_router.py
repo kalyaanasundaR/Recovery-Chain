@@ -4,11 +4,129 @@ from infrastructure.db import get_db
 from application.dataset_lab import DatasetLabService
 import shutil
 import os
+import json
 import uuid
 from datetime import datetime, timezone
 from infrastructure.dataset_orm import DatasetMetadataModel, DatasetStatus
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
+
+_REGISTRY_DIR = "ml/models/registry"
+
+
+def _delete_models_for_dataset(dataset_id: str) -> int:
+    """Remove every model artifact + metadata file belonging to a dataset."""
+    removed = 0
+    if not os.path.isdir(_REGISTRY_DIR):
+        return 0
+    for f in list(os.listdir(_REGISTRY_DIR)):
+        if not f.endswith("_metadata.json"):
+            continue
+        path = os.path.join(_REGISTRY_DIR, f)
+        try:
+            meta = json.load(open(path))
+        except Exception:
+            continue
+        if meta.get("dataset_id") != dataset_id:
+            continue
+        model_id = meta.get("model_id") or f[:-len("_metadata.json")]
+        for name in (f, f"{model_id}_model.joblib"):
+            p = os.path.join(_REGISTRY_DIR, name)
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+                    removed += 1
+            except OSError:
+                pass
+    return removed
+
+
+def _prune_old_models_for_dataset(dataset_id: str, keep_model_id: str = None) -> int:
+    """Delete every model for `dataset_id` except the one identified by
+    `keep_model_id` (the freshly trained one)."""
+    removed = 0
+    if not os.path.isdir(_REGISTRY_DIR):
+        return 0
+    for f in list(os.listdir(_REGISTRY_DIR)):
+        if not f.endswith("_metadata.json"):
+            continue
+        path = os.path.join(_REGISTRY_DIR, f)
+        try:
+            meta = json.load(open(path))
+        except Exception:
+            continue
+        if meta.get("dataset_id") != dataset_id:
+            continue
+        mid = meta.get("model_id") or f[:-len("_metadata.json")]
+        if keep_model_id and mid == keep_model_id:
+            continue
+        for name in (f, f"{mid}_model.joblib"):
+            p = os.path.join(_REGISTRY_DIR, name)
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+                    removed += 1
+            except OSError:
+                pass
+    return removed
+
+
+def _prune_stale_datasets(db: Session, keep: int) -> dict:
+    """Keep the `keep` most recently uploaded datasets; delete the rest — their
+    metadata row, uploaded file, and model artifacts. Generated recovery cases
+    are left intact (they are the history shown in Insights)."""
+    keep = max(1, min(keep, 200))
+    svc = DatasetLabService(db)
+    rows = sorted(svc.get_all_datasets(),
+                  key=lambda d: (d.upload_timestamp or datetime.min), reverse=True)
+    stale = rows[keep:]
+    files = models = 0
+    ids = []
+    for ds in stale:
+        try:
+            fp = os.path.join(svc.dataset_dir, ds.filename)
+            if os.path.exists(fp):
+                os.remove(fp)
+                files += 1
+        except OSError:
+            pass
+        models += _delete_models_for_dataset(ds.dataset_id)
+        db.delete(ds)
+        ids.append(ds.dataset_id)
+    if ids:
+        db.commit()
+
+    # Sweep model files whose dataset no longer exists at all (e.g. left behind
+    # by tests or earlier prunes).
+    orphans = 0
+    live_ids = {d.dataset_id for d in svc.get_all_datasets()}
+    if os.path.isdir(_REGISTRY_DIR):
+        for f in list(os.listdir(_REGISTRY_DIR)):
+            if not f.endswith("_metadata.json"):
+                continue
+            try:
+                meta = json.load(open(os.path.join(_REGISTRY_DIR, f)))
+            except Exception:
+                continue
+            did = meta.get("dataset_id")
+            if did and did not in live_ids and did != "legacy_billing_v3":
+                mid = meta.get("model_id") or f[:-len("_metadata.json")]
+                for name in (f, f"{mid}_model.joblib"):
+                    p = os.path.join(_REGISTRY_DIR, name)
+                    try:
+                        if os.path.exists(p):
+                            os.remove(p)
+                            orphans += 1
+                    except OSError:
+                        pass
+
+    return {"removed_datasets": len(ids), "removed_files": files,
+            "removed_model_files": models + orphans, "dataset_ids": ids}
+
+
+@router.post("/prune")
+def prune_datasets(keep: int = 8, db: Session = Depends(get_db)):
+    return {"status": "success", **_prune_stale_datasets(db, keep)}
 
 @router.post("/sync")
 def sync_local_datasets(db: Session = Depends(get_db)):
@@ -75,6 +193,16 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
     )
     db.add(new_ds)
     db.commit()
+
+    # Keep the workspace focused on recent uploads: drop older datasets (their
+    # metadata row, file, and trained models). Recovery cases stay in Insights.
+    try:
+        pruned = _prune_stale_datasets(db, keep=int(os.getenv("DATASET_KEEP", "12")))
+        if pruned["removed_datasets"]:
+            print(f"[upload] pruned {pruned['removed_datasets']} old dataset(s), "
+                  f"{pruned['removed_model_files']} model file(s)")
+    except Exception as e:
+        print(f"[upload] prune skipped: {e}")
 
     return {"status": "success", "dataset_id": ds_id}
 
@@ -203,8 +331,15 @@ def run_ml_training_task(dataset_id: str, spec: dict, data_path: str,
     try:
         engine = MLTrainingEngine(spec, data_path, "ml/models/registry",
                                   min_roc_auc=min_roc_auc, min_test_rows=min_test_rows)
-        engine.train_and_evaluate()
-        
+        meta = engine.train_and_evaluate()
+
+        # Keep only the newest model per dataset — drop older / rejected ones so
+        # the registry does not grow without bound.
+        try:
+            _prune_old_models_for_dataset(dataset_id, keep_model_id=meta.get("model_id"))
+        except Exception:
+            pass
+
         ds = db.query(DatasetMetadataModel).filter(DatasetMetadataModel.dataset_id == dataset_id).first()
         if ds:
             ds.status = DatasetStatus.TRAINED
