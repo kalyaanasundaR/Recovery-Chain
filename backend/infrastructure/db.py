@@ -2,9 +2,10 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# PostgreSQL is the persistent source of truth.
-# SQLite is explicitly supported ONLY for local test/development config if provided via ENV.
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/recoverchain")
+# Offline-first: default to a local SQLite file so the app runs with zero setup
+# and no external services. Point DATABASE_URL at Postgres for a real deployment
+# (then run `alembic upgrade head`).
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./recoverchain.db")
 
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})

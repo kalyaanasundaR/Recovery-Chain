@@ -527,7 +527,7 @@ def test_sandbox_execution_cannot_become_production():
     assert record.status == ExecutionStatus.COMPLETED_SIMULATED
     assert record.adapter_used == "MockExecutionAdapter"
     assert record.result_metadata.get("adapter_status") == "COMPLETED_SIMULATED"
-    assert record.result_metadata.get("metadata", {}).get("gateway") == "mock_stripe"
+    assert record.result_metadata.get("metadata", {}).get("gateway") == "sandbox"
 
 # ---------------------------------------------------------------------------
 # 21. Path Traversal and Registry Escape Protection

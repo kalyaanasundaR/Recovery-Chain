@@ -674,19 +674,20 @@ def run_evaluation(db: Session = Depends(get_db)):
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
-    health_status = {"api": "ok", "db": "unknown", "redis": "unknown"}
+    from infrastructure.redis_client import redis_enabled
+    health_status = {"api": "ok", "db": "unknown", "redis": "disabled"}
     try:
         db.execute(text("SELECT 1"))
         health_status["db"] = "ok"
-    except Exception as e:
+    except Exception:
         health_status["db"] = "error"
-        
-    try:
-        r = get_redis_client()
-        r.ping()
-        health_status["redis"] = "ok"
-    except Exception as e:
-        health_status["redis"] = "error"
+
+    if redis_enabled():
+        try:
+            get_redis_client().ping()
+            health_status["redis"] = "ok"
+        except Exception:
+            health_status["redis"] = "error"
     return health_status
 
 from infrastructure.orm import CaseModel

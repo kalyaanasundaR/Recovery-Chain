@@ -23,7 +23,7 @@ class MockExecutionAdapter:
 
         if action in _PAYMENT_ACTIONS:
             return {"adapter_status": "COMPLETED_SIMULATED",
-                    "metadata": {"gateway": "mock_stripe", "message": "Payment retried successfully."}}
+                    "metadata": {"gateway": "sandbox", "message": "Payment retried successfully."}}
         if action in _COMMS_ACTIONS or "REMINDER" in action:
             return {"adapter_status": "COMPLETED_SIMULATED",
                     "metadata": {"gateway": "mock_twilio", "message": "Message sent."}}
