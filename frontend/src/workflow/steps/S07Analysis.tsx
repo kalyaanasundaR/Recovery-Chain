@@ -29,7 +29,15 @@ export default function S07Analysis({ ctx, patch, next, setAction }: StepProps) 
                     value={`${money(snap.amount_at_risk, ccy)}`} tone="red" sub="at risk" />
             </div>
 
-            <div className="mt-10 grid gap-8 sm:grid-cols-3">
+            <p className="mt-6 rounded-xl border border-[--line] bg-[--panel] px-4 py-3 text-sm leading-relaxed text-[--muted]">
+                In plain words: <b className="text-[--ink]">{snap.customer_id}</b> has{' '}
+                <b className="text-[--ink]">{money(snap.amount_at_risk, ccy)}</b> unpaid
+                {dx && <> because {(WHY_FAILED[dx.cause_category] || dx.cause_category).toLowerCase()}</>}.
+                {pred != null && <> From past cases like this, about <b className="text-[--ink]">{pct(pred.recovery_probability)}</b> is
+                    likely to come back{snap.expected_recoverable_value && <> — roughly <b className="text-[--ink]">{moneyMaybe(snap.expected_recoverable_value, ccy)}</b></>}.</>}
+            </p>
+
+            <div className="mt-8 grid gap-8 sm:grid-cols-3">
                 <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[--faint]">Why it’s at risk</div>
                     <div className="mt-2 text-lg font-medium">

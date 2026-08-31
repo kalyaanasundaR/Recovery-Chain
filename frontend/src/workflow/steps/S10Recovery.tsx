@@ -47,8 +47,12 @@ export default function S10Recovery({ ctx, patch, next, setAction }: StepProps) 
 
     return (
         <div className="max-w-2xl">
-            <h1 className="text-3xl font-bold tracking-tight">Recovery</h1>
-            <div className="mt-3 text-[--muted]">Approved action: <b className="text-[--ink]">{actionName}</b></div>
+            <h1 className="text-3xl font-bold tracking-tight">Running the recovery</h1>
+            <p className="mt-3 text-[--muted]">
+                This is where the chosen action actually happens — <b className="text-[--ink]">{actionName}</b>.
+                {' '}It runs in a safe test mode: no real charge is made and no message is really sent. The
+                next screen checks whether the money actually came back.
+            </p>
 
             {exec ? (
                 <div className="mt-8 rounded-2xl border border-[--line] bg-[--panel] px-5 py-2">

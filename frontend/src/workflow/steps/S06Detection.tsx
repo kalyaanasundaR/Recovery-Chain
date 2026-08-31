@@ -38,6 +38,11 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
     return (
         <div className="max-w-2xl">
             <h1 className="text-3xl font-bold tracking-tight">Finding revenue at risk</h1>
+            <p className="mt-3 text-[--muted]">
+                Every unpaid row becomes a <b className="text-[--ink]">case</b>. Each case runs the same
+                checks: how risky it is, why the payment failed, how much is likely to come back, what to
+                do about it, and whether we’re allowed to do that automatically.
+            </p>
 
             {!done && !err && (
                 <div className="mt-8 space-y-3">
