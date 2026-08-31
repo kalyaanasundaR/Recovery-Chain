@@ -33,13 +33,22 @@ def predict_recovery_for_case(case: RecoveryCase, dataset_id: Optional[str] = No
     from application.recovery_predictor_ml import MLPaymentFailurePredictor
     from application.recovery_predictor import DeterministicBaselinePredictor
 
+    # Start from the raw source row (dataset replay) so a per-dataset model sees
+    # the same original columns it was trained on; canonical keys are layered on
+    # top as a fallback for models that only know canonical inputs.
+    src_event = case.linked_events[-1] if getattr(case, "linked_events", None) else None
+    row = dict(src_event.raw_payload) if src_event and src_event.raw_payload else {}
+    ts = src_event.timestamp.isoformat() if src_event and src_event.timestamp else \
+        datetime.now(timezone.utc).isoformat()
+
     feature_dict = {
+        **row,
         "AMOUNT": case.amount_at_risk.amount if case.amount_at_risk else 0.0,
         "BALANCE": case.amount_at_risk.amount if case.amount_at_risk else 0.0,
         "CUSTOMER_ID": case.customer_id,
         "ACCOUNT_ID": case.customer_id,
         "ENTITY_ID": case.customer_id,
-        "TIMESTAMP": datetime.now(timezone.utc).isoformat(),
+        "TIMESTAMP": ts,
     }
 
     prob = None
@@ -117,7 +126,7 @@ class CasePipelineService:
         recommendation = DeterministicActionEvaluator().evaluate(case)
         case.recommendation = recommendation
         if recommendation.top_candidate:
-            currency = case.amount_at_risk.currency if case.amount_at_risk else "USD"
+            currency = case.amount_at_risk.currency if case.amount_at_risk else "INR"
             case.expected_recoverable_value = Money(
                 amount=recommendation.top_candidate.expected_recoverable_value, currency=currency
             )

@@ -14,7 +14,7 @@ class CaseModel(Base):
     
     amount_at_risk = Column(Numeric(precision=18, scale=4), nullable=False)
     expected_recoverable_value = Column(Numeric(precision=18, scale=4), nullable=True)
-    currency = Column(String, default="USD", nullable=False)
+    currency = Column(String, default="INR", nullable=False)
     
     current_state = Column(Enum(CaseState), nullable=False, default=CaseState.DETECTED)
     risk_assessment = Column(JSON, nullable=True)
@@ -43,7 +43,7 @@ class EventModel(Base):
     risk_category = Column(Enum(RiskCategory), nullable=False)
     
     amount = Column(Numeric(precision=18, scale=4), nullable=False)
-    currency = Column(String, default="USD")
+    currency = Column(String, default="INR")
     
     timestamp = Column(DateTime, nullable=False)
     raw_payload = Column(JSON, nullable=False)

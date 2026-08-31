@@ -7,7 +7,7 @@ from decimal import Decimal
 
 class Money(BaseModel):
     amount: Decimal
-    currency: str = "USD"
+    currency: str = "INR"
 
 class RiskCategory(str, Enum):
     FAILED_PAYMENT = "FAILED_PAYMENT"

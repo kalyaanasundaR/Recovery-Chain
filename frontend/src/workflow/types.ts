@@ -6,10 +6,9 @@ export const STEPS = [
     { n: '05', title: 'Data connection' },
     { n: '06', title: 'Revenue risk detection' },
     { n: '07', title: 'AI analysis' },
-    { n: '08', title: 'Recovery decision' },
-    { n: '09', title: 'Policy check' },
-    { n: '10', title: 'Recovery' },
-    { n: '11', title: 'Verified result' },
+    { n: '08', title: 'Decision & policy' },
+    { n: '09', title: 'Recovery' },
+    { n: '10', title: 'Verified result' },
 ] as const;
 
 export interface Ctx {

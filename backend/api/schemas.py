@@ -10,7 +10,7 @@ class IngestEventRequest(BaseModel):
     external_event_id: str
     reference_id: Optional[str] = None
     amount: Decimal
-    currency: str = "USD"
+    currency: str = "INR"
     raw_payload: Dict[str, Any]
 
 class IngestEventResponse(BaseModel):

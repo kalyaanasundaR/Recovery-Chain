@@ -81,14 +81,15 @@ class MLPaymentFailurePredictor:
         mapped = {}
         for feature_col in self.features:
             canon = self.canonical_mapping.get(feature_col)
-            
-            # Use the canonical value if available (and not UNKNOWN)
-            if canon and canon != "UNKNOWN" and canon in canonical_features:
-                mapped[feature_col] = canonical_features[canon]
-            # Fallback for testing or direct original column injection
-            elif feature_col in canonical_features:
+
+            # Prefer the raw column value straight from the source row when it is
+            # present (real dataset replay) — it matches what the pipeline was
+            # fitted on. Only fall back to a canonical substitute otherwise.
+            if feature_col in canonical_features and canonical_features[feature_col] is not None:
                 mapped[feature_col] = canonical_features[feature_col]
-                
+            elif canon and canon != "UNKNOWN" and canon in canonical_features:
+                mapped[feature_col] = canonical_features[canon]
+
         return mapped
 
     def predict_failure_risk(self, canonical_features: dict) -> dict:

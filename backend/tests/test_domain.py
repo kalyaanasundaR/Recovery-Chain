@@ -11,7 +11,7 @@ client = TestClient(app)
 
 def test_money_validation():
     m = Money(amount=100.0)
-    assert m.currency == "USD"
+    assert m.currency == "INR"
     assert m.amount == 100.0
 
 def test_case_lifecycle_transitions():
