@@ -1,9 +1,9 @@
 import React, { Suspense, lazy, useMemo, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { STEPS, Ctx, Action } from './types';
 import Rail from './Rail';
 import Frame from './Frame';
+import ModeSwitch from '../ModeSwitch';
 import { useMotionPref } from '../lib/motion';
 
 import S01 from './steps/S01Upload';
@@ -49,10 +49,9 @@ export default function Workflow() {
 
             <header className="sticky top-0 z-20 border-b border-[--line] bg-[--bg]/80 backdrop-blur">
                 <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-3">
                         <span className="grid h-7 w-7 place-items-center rounded-md bg-[--accent] text-xs font-bold text-white">RC</span>
-                        <span className="font-semibold">RecoverChain</span>
-                        <span className="ml-2 text-xs text-[--faint]">guided recovery</span>
+                        <ModeSwitch />
                     </div>
                     <div className="flex items-center gap-4 text-xs text-[--faint]">
                         <button
@@ -63,7 +62,6 @@ export default function Workflow() {
                             <Sparkles size={13} /> motion
                         </button>
                         <span>Step {STEPS[idx].n} / 11</span>
-                        <Link to="/overview" className="text-[--muted] hover:text-[--ink]">Exit</Link>
                     </div>
                 </div>
                 <div className="h-0.5 bg-[--line]">

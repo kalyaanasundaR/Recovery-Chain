@@ -6,6 +6,7 @@ import { verifyCase } from '../../lib/api';
 import { Spinner, ErrorNote, Note, KV, BigStat, Button, CountUp } from '../../ui';
 import { money, moneyMaybe, ACTION, outcomeVerdict } from '../../lib/format';
 import { useMotionPref } from '../../lib/motion';
+import { markWorkflowDone } from '../../lib/progress';
 
 export default function S11Result({ ctx, patch, setAction }: StepProps) {
     const nav = useNavigate();
@@ -14,7 +15,8 @@ export default function S11Result({ ctx, patch, setAction }: StepProps) {
     const [verifying, setVerifying] = useState(false);
     const tried = useRef(false);
 
-    useEffect(() => { setAction(null); }, []);
+    // reaching the Verified Result step completes the process — unlock the report
+    useEffect(() => { setAction(null); markWorkflowDone(); }, []);
 
     // if the action just ran but wasn't verified (escalated path), verify now
     useEffect(() => {
@@ -74,7 +76,7 @@ export default function S11Result({ ctx, patch, setAction }: StepProps) {
 
             <div className="mt-10 flex flex-wrap gap-3">
                 <Button onClick={() => nav('/cases')}>Review all {ctx.caseCount ?? ''} cases →</Button>
-                <Button variant="ghost" onClick={() => nav('/overview')}>Explore RecoverChain</Button>
+                <Button variant="ghost" onClick={() => nav('/insights')}>Open the report</Button>
             </div>
         </div>
     );
