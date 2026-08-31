@@ -461,24 +461,19 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
     from domain.models import RevenueEvent, RiskCategory, Money
     from infrastructure.repositories import SqlAlchemyCaseRepository, SqlAlchemyAuditRecorder
     from application.case_engine import CaseEngine, DuplicateEventException
-    from application.diagnosis_engine import DeterministicDiagnosisEngine
-    from application.recovery_predictor_ml import MLPaymentFailurePredictor
-    from application.action_evaluator import DeterministicActionEvaluator
-    from application.policy_engine import DeterministicPolicyEngine
+    from application.case_pipeline import CasePipelineService
     from application.agents import AgentOrchestrator
+    from application.verification_engine import VerificationEngine
     import uuid
     from datetime import datetime
-    
+
     case_repo = SqlAlchemyCaseRepository(db)
     audit_repo = SqlAlchemyAuditRecorder(db)
     case_engine = CaseEngine(case_repo, audit_repo)
-    diag_engine = DeterministicDiagnosisEngine()
-    evaluator = DeterministicActionEvaluator()
-    policy_engine = DeterministicPolicyEngine()
+    pipeline = CasePipelineService(case_repo, audit_repo)
     agent = AgentOrchestrator()
-    
-    predictor = MLPaymentFailurePredictor(dataset_id=dataset_id, registry_dir="ml/models/registry")
-    
+    v_engine = VerificationEngine()
+
     generated_ids = []
     
     counters = {
@@ -581,7 +576,19 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
             
         tx_col = canonical_to_original.get("TRANSACTION_ID")
         tx_id = str(row_dict.get(tx_col, f"tx_{idx}")) if tx_col else f"tx_{idx}"
-        
+
+        # Surface a failure reason for the diagnosis engine: any column whose name
+        # looks like a reason/cause/decline code becomes raw_payload["failure_code"].
+        payload = dict(row_dict)
+        if "failure_code" not in payload:
+            for k, v in row_dict.items():
+                kl = str(k).lower()
+                if v is not None and str(v).strip() and any(
+                    tok in kl for tok in ("reason", "cause", "failure_code", "decline", "error_code")
+                ):
+                    payload["failure_code"] = str(v).strip().lower()
+                    break
+
         event = RevenueEvent(
             event_id=f"evt_{uuid.uuid4().hex[:8]}",
             customer_id=customer_id,
@@ -591,7 +598,7 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
             reference_id=tx_id,
             amount=Money(amount=amt, currency="USD"),
             timestamp=ts,
-            raw_payload=row_dict
+            raw_payload=payload
         )
         
         try:
@@ -599,69 +606,23 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
         except DuplicateEventException:
             counters["rows_skipped"] += 1
             continue
-            
-        # Diagnosis
-        case.diagnosis = diag_engine.diagnose(case)
-        case_repo.save(case)
-        
-        # ML Shadow Risk
-        if predictor.model:
-            # Strictly isolate features: only pass approved canonical features and feature_columns, excluding all leakage
-            leaked_cols = {l["column"] for l in (ds.leakage_detection or [])}
-            canonical_features = {}
-            for can, orig in canonical_to_original.items():
-                if orig not in leaked_cols:
-                    canonical_features[can] = row_dict.get(orig)
-                    canonical_features[orig] = row_dict.get(orig)
-            active_features = predictor.features or (ds.training_suitability or {}).get("feature_columns", [])
-            for feat_col in active_features:
-                if feat_col not in leaked_cols and feat_col in row_dict:
-                    canonical_features[feat_col] = row_dict.get(feat_col)
-            
-            try:
-                pred_res = predictor.predict_failure_risk(canonical_features)
-                failure_prob = pred_res.get("probability", 0.0)
-                from domain.models import RecoveryPrediction
-                case.prediction = RecoveryPrediction(
-                    prediction_id=f"pred_{uuid.uuid4().hex[:8]}",
-                    recovery_probability=1.0 - failure_prob,
-                    confidence=1.0,
-                    model_version=pred_res.get("model_metadata", {}).get("model_version", "unknown"),
-                    feature_version="v1",
-                    contributing_features=canonical_features,
-                    prediction_status="SHADOW_ONLY"
-                )
-                case_repo.save(case)
-            except (ValueError, Exception):
-                pass
-                
-        # Recommendation
-        case.recommendation = evaluator.evaluate(case)
-        if case.recommendation and case.recommendation.top_candidate:
-            case.candidate_action = case.recommendation.top_candidate
-            case.expected_recoverable_value = Money(amount=case.candidate_action.expected_recoverable_value, currency="USD")
-        case_repo.save(case)
-        
-        # Policy Engine
-        if case.candidate_action:
-            try:
-                _pctx = case_repo.get_policy_context(case.case_id)
-            except Exception:
-                _pctx = None
-            case.policy_decision = policy_engine.evaluate(case, context=_pctx)
+
+        # Run the same deterministic pipeline the live case flow uses:
+        # risk -> diagnose -> predict (shadow ML or baseline) -> recommend (+ERV)
+        # -> policy. Then, if policy permitted, act and verify in the sandbox.
+        case = pipeline.advance(case, dataset_id=dataset_id)
+
+        from domain.models import PolicyDecisionStatus
+        if case.policy_decision and case.policy_decision.status == PolicyDecisionStatus.PERMITTED \
+                and case.recommendation and case.recommendation.top_candidate:
+            case.execution_record = agent.execute(
+                case, case.recommendation.top_candidate.action_type, repo=case_repo)
             case_repo.save(case)
-            
-            # Sandbox Execution
-            from domain.models import PolicyDecisionStatus
-            if case.policy_decision.status == PolicyDecisionStatus.PERMITTED:
-                case.execution_record = agent.execute(case, case.candidate_action.action_type, repo=case_repo)
-                case_repo.save(case)
-                
-        # Verification (Mock)
-        if case.execution_record:
-            from application.verification_engine import VerificationEngine
-            v_engine = VerificationEngine()
+
+        if case.execution_record and case.execution_record.status.value == "COMPLETED_SIMULATED":
             case.outcome = v_engine.reconcile(case, external_reference=case.execution_record.execution_id)
+            case.actual_amount_recovered = case.outcome.actual_amount_recovered
+            case.current_state = v_engine.resolve_case_state(case.outcome.status)
             case_repo.save(case)
 
         if case.case_id not in generated_ids:
