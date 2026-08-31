@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { StepProps } from '../types';
 import { useSnap } from './useSnap';
 import { verifyCase } from '../../lib/api';
-import { Spinner, ErrorNote, Note, KV, BigStat, Button } from '../../ui';
-import { moneyMaybe, ACTION, outcomeVerdict } from '../../lib/format';
+import { Spinner, ErrorNote, Note, KV, BigStat, Button, CountUp } from '../../ui';
+import { money, moneyMaybe, ACTION, outcomeVerdict } from '../../lib/format';
+import { useMotionPref } from '../../lib/motion';
 
 export default function S11Result({ ctx, patch, setAction }: StepProps) {
     const nav = useNavigate();
+    const [motion] = useMotionPref();
     const { snap, loading, err, refresh } = useSnap(ctx, patch);
     const [verifying, setVerifying] = useState(false);
     const tried = useRef(false);
@@ -43,7 +45,13 @@ export default function S11Result({ ctx, patch, setAction }: StepProps) {
                     <div className="mt-3"><BigStat label={snap.customer_id} value={v.label} tone={v.tone as any} /></div>
                     <div className="mt-8 rounded-2xl border border-[--line] bg-[--panel] px-5 py-2">
                         <KV k="Original amount at risk" v={moneyMaybe(o.expected_amount, ccy)} />
-                        <KV k="Actual amount recovered" v={<span className="text-emerald-300">{moneyMaybe(o.actual_amount_recovered, ccy)}</span>} />
+                        <KV k="Actual amount recovered" v={
+                            <span className="text-emerald-300 tabular">
+                                <CountUp motion={motion}
+                                    to={Number(o.actual_amount_recovered?.amount ?? o.actual_amount_recovered ?? 0)}
+                                    format={n => money(n, ccy)} />
+                            </span>
+                        } />
                         <KV k="Recovery action" v={top ? (ACTION[top.action_type] || top.action_type) : '—'} />
                         <KV k="Final status" v={v.label} />
                         <KV k="Reconciliation" v={<span className="text-sm text-[--muted]">{o.reconciliation_status}</span>} />
