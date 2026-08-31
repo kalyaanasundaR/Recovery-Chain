@@ -10,8 +10,11 @@ async function j(res: Response) {
     return res.json();
 }
 
-// -- overview -----------------------------------------------------------------
+// -- overview / report -------------------------------------------------------
 export const getOverview = () => fetch(`${BASE}/dashboard/metrics`).then(j);
+export const getSystemSummary = () => fetch(`${BASE}/system/summary`).then(j);
+export const getSystemHealth = () => fetch(`${BASE}/system/health`).then(j);
+export const getModels = () => fetch(`${BASE}/system/models`).then(j);
 
 // -- cases ------------------------------------------------------------------
 export const listCases = () => fetch(`${BASE}/cases`).then(j);

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { LayoutGrid, ListChecks, PlayCircle, Menu, X } from 'lucide-react';
+import { BarChart3, ListChecks, Menu, X } from 'lucide-react';
+import ModeSwitch from './ModeSwitch';
 
 const NAV = [
-    { to: '/overview', label: 'Overview', icon: LayoutGrid },
+    { to: '/insights', label: 'Report', icon: BarChart3 },
     { to: '/cases', label: 'Cases', icon: ListChecks },
 ];
 
@@ -16,14 +17,10 @@ function Nav({ onGo }: { onGo?: () => void }) {
     return (
         <nav className="space-y-1 p-4">
             {NAV.map(({ to, label, icon: Icon }) => (
-                <NavLink key={to} to={to} onClick={onGo} className={linkClass}>
+                <NavLink key={to} to={to} end onClick={onGo} className={linkClass}>
                     <Icon size={17} /> {label}
                 </NavLink>
             ))}
-            <Link to="/" onClick={onGo}
-                className="mt-3 flex items-center gap-3 rounded-lg border border-[--line] px-3 py-2 text-sm font-medium text-[--ink] hover:bg-white/5">
-                <PlayCircle size={17} /> New recovery run
-            </Link>
         </nav>
     );
 }
@@ -37,16 +34,16 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                     <button onClick={() => setOpen(true)} className="rounded-lg p-2 text-[--muted] hover:bg-white/5 lg:hidden">
                         <Menu size={18} />
                     </button>
-                    <Link to="/overview" className="flex items-center gap-2">
+                    <Link to="/insights" className="flex items-center gap-2">
                         <span className="grid h-7 w-7 place-items-center rounded-md bg-[--accent] text-xs font-bold text-white">RC</span>
                         <span className="font-semibold">RecoverChain</span>
                     </Link>
                 </div>
-                <span className="hidden text-xs text-[--faint] sm:block">Actions are simulated · a person approves anything risky</span>
+                <ModeSwitch />
             </header>
 
             <div className="mx-auto flex max-w-6xl">
-                <aside className="hidden w-56 shrink-0 border-r border-[--line] lg:block">
+                <aside className="hidden w-52 shrink-0 border-r border-[--line] lg:block">
                     <div className="sticky top-14"><Nav /></div>
                 </aside>
 
