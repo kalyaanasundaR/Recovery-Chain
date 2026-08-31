@@ -1,6 +1,24 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import gsap from 'gsap';
 
 export type Tone = 'green' | 'amber' | 'red' | 'blue' | 'gray' | 'violet';
+
+/** GSAP-driven number count-up. `format` maps the raw number to a display string. */
+export function CountUp({ to, format, motion = true, className = '' }:
+    { to: number; format: (n: number) => string; motion?: boolean; className?: string }) {
+    const [txt, setTxt] = useState(() => format(motion ? 0 : to));
+    const box = useRef({ v: 0 });
+    useEffect(() => {
+        if (!motion) { setTxt(format(to)); return; }
+        box.current.v = 0;
+        const t = gsap.to(box.current, {
+            v: to, duration: 1.1, ease: 'power2.out',
+            onUpdate: () => setTxt(format(box.current.v)),
+        });
+        return () => { t.kill(); };
+    }, [to, motion]);
+    return <span className={className}>{txt}</span>;
+}
 
 const TONE: Record<Tone, string> = {
     green: 'bg-emerald-500/12 text-emerald-300 ring-emerald-500/25',
