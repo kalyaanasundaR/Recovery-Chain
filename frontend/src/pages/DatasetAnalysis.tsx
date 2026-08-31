@@ -21,7 +21,6 @@ import {
 import StatusBadge from '../components/StatusBadge';
 import SectionCard from '../components/SectionCard';
 import { ErrorState } from '../components/EmptyState';
-import SafetyBanner from '../components/SafetyBanner';
 
 export default function DatasetAnalysis() {
     const { datasetId } = useParams();
@@ -194,7 +193,7 @@ export default function DatasetAnalysis() {
                                 <RefreshCw size={13} className="animate-spin" /> Training Model in Background...
                             </span>
                         )}
-                        <SafetyBanner compact />
+
                     </div>
                 </div>
             </div>
