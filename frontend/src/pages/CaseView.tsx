@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { getCase, getCaseHistory, decideCase, executeCase, verifyCase } from '../lib/api';
 import {
-    money, moneyMaybe, pct, safetyCheck, outcome, riskWord,
+    money, moneyMaybe, pct, policyVerdict as safetyCheck, outcomeVerdict as outcome, riskWord,
     WHY_FAILED, ACTION, CATEGORY,
 } from '../lib/format';
 import { Card, Pill, Button, Spinner, ErrorNote } from '../ui';
@@ -76,7 +76,7 @@ export default function CaseView() {
             </div>
 
             {needsOk && (
-                <Card title="This one needs your OK" subtitle={s.help}>
+                <Card title="This one needs your OK" subtitle={s.note}>
                     <p className="text-sm text-slate-300">
                         Suggested action: <b>{rec ? (ACTION[rec.action_type] || rec.action_type) : '—'}</b>.
                         Reason it was held: {c.policy_decision?.reason}
@@ -112,7 +112,7 @@ export default function CaseView() {
                         {rec ? (ACTION[rec.action_type] || rec.action_type) : 'Nothing suitable found'}
                     </Line>
                     <Line label="Safety check">
-                        <span className="font-medium">{s.label}.</span> {s.help}
+                        <span className="font-medium">{s.label}.</span> {s.note}
                     </Line>
                     <Line label="Action taken">
                         {c.execution_record

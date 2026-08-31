@@ -1,17 +1,23 @@
-export const money = (n: any) =>
-    '$' + Number(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const money = (n: any, ccy = 'USD') => {
+    const v = Number(n ?? 0);
+    try {
+        return v.toLocaleString(undefined, { style: 'currency', currency: ccy, maximumFractionDigits: 2 });
+    } catch {
+        return '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+};
 
 export const pct = (n: any) =>
     n === null || n === undefined ? '—' : `${Math.round(Number(n) * 100)}%`;
 
 const amt = (v: any) => (v && typeof v === 'object' ? v.amount : v);
-export const moneyMaybe = (v: any) => money(amt(v));
+export const moneyMaybe = (v: any, ccy = 'USD') => money(amt(v), ccy);
 
 // plain words for backend enums ------------------------------------------------
 export const WHY_FAILED: Record<string, string> = {
     INSUFFICIENT_FUNDS: 'Not enough money in the account',
     NETWORK_FAILURE: 'A temporary network / bank glitch',
-    PAYMENT_METHOD_INVALID: 'The card / payment method is no longer valid',
+    PAYMENT_METHOD_INVALID: 'The card or payment method is no longer valid',
     PAYMENT_FRICTION: 'The customer got stuck at payment',
     MANDATE_FAILURE: 'The recurring-payment authorisation broke',
     UNRESOLVED_DISPUTE: 'There is an open dispute on the invoice',
@@ -37,26 +43,37 @@ export const ACTION: Record<string, string> = {
     NO_ACTION_POSSIBLE: 'Nothing to do',
 };
 
-// { label, tone } for status pills -------------------------------------------
-type Tone = 'green' | 'amber' | 'red' | 'blue' | 'gray' | 'purple';
+// plain names for the real PolicyEngine rule_names
+export const RULE_LABEL: Record<string, string> = {
+    FinancialAutomatedLimit: 'Automated-amount limit',
+    PaymentMaxRetries: 'Retry limit',
+    PaymentRetryCooldown: 'Cooling period',
+    CommunicationMaxMessages: 'Contact limit',
+    HumanEscalationAction: 'Human-approval threshold',
+    StopRule: 'Stop rule',
+    ConsentCheck: 'Consent',
+    EvidenceCheck: 'Evidence present',
+};
 
-export function safetyCheck(status?: string): { label: string; tone: Tone; help: string } {
+type Tone = 'green' | 'amber' | 'red' | 'blue' | 'gray' | 'violet';
+
+export function policyVerdict(status?: string): { label: string; tone: Tone; note: string } {
     switch (status) {
-        case 'PERMITTED': return { label: 'Approved to run', tone: 'green', help: 'Safe to act automatically.' };
-        case 'WAIT': return { label: 'Waiting', tone: 'amber', help: 'In a cool-down period; try again later.' };
-        case 'ESCALATE': return { label: 'Needs your OK', tone: 'amber', help: 'A person must approve this one.' };
-        case 'DENIED': return { label: 'Blocked', tone: 'red', help: 'A safety rule stops this action.' };
-        default: return { label: 'Not checked yet', tone: 'gray', help: '' };
+        case 'PERMITTED': return { label: 'Approved', tone: 'green', note: 'Safe to act on automatically.' };
+        case 'WAIT': return { label: 'Wait', tone: 'amber', note: 'In a cooling period — try again later.' };
+        case 'ESCALATE': return { label: 'Needs approval', tone: 'amber', note: 'Above the automated limit — a person must approve.' };
+        case 'DENIED': return { label: 'Blocked', tone: 'red', note: 'A safety rule stops this action.' };
+        default: return { label: 'Not checked', tone: 'gray', note: '' };
     }
 }
 
-export function outcome(status?: string): { label: string; tone: Tone } {
+export function outcomeVerdict(status?: string): { label: string; tone: Tone } {
     switch (status) {
-        case 'FULLY_RECOVERED': return { label: 'Recovered in full', tone: 'green' };
-        case 'PARTIALLY_RECOVERED': return { label: 'Partly recovered', tone: 'amber' };
+        case 'FULLY_RECOVERED': return { label: 'Recovered', tone: 'green' };
+        case 'PARTIALLY_RECOVERED': return { label: 'Partially recovered', tone: 'amber' };
         case 'NOT_RECOVERED': return { label: 'Not recovered', tone: 'red' };
-        case 'PENDING_VERIFICATION': return { label: 'Checking result', tone: 'blue' };
-        default: return { label: 'Not run yet', tone: 'gray' };
+        case 'PENDING_VERIFICATION': return { label: 'Pending', tone: 'blue' };
+        default: return { label: 'Not run', tone: 'gray' };
     }
 }
 
@@ -70,10 +87,24 @@ export function riskWord(level?: string): { label: string; tone: Tone } {
     }
 }
 
+export function confidenceTone(c?: string): Tone {
+    return c === 'HIGH' ? 'green' : c === 'MEDIUM' ? 'blue' : c === 'LOW' ? 'amber' : 'gray';
+}
+
 export const CATEGORY: Record<string, string> = {
     FAILED_PAYMENT: 'Failed payment',
     CHECKOUT_ABANDONMENT: 'Abandoned checkout',
     FAILED_SUBSCRIPTION: 'Failed subscription',
     OVERDUE_INVOICE: 'Overdue invoice',
     BROKEN_PROMISE: 'Broken promise to pay',
+};
+
+// which of the four roles a detected canonical field fills (for step 4)
+export const ROLE_OF: Record<string, string> = {
+    CUSTOMER_ID: 'Customer', ACCOUNT_ID: 'Customer', ENTITY_ID: 'Customer',
+    AMOUNT: 'Amount', BALANCE: 'Amount',
+    TIMESTAMP: 'Date', SETTLEMENT_DATE: 'Date',
+    OUTCOME: 'Result', TARGET: 'Result',
+    TRANSACTION_ID: 'Transaction ID', STATUS: 'Status', CURRENCY: 'Currency',
+    PAYMENT_METHOD: 'Payment method',
 };
