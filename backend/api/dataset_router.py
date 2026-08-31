@@ -193,14 +193,16 @@ def get_ml_readiness(dataset_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Readiness spec not found")
     return ds.training_suitability
 
-def run_ml_training_task(dataset_id: str, spec: dict, data_path: str):
+def run_ml_training_task(dataset_id: str, spec: dict, data_path: str,
+                         min_roc_auc: float = None, min_test_rows: int = None):
     from application.ml_training import MLTrainingEngine
     from infrastructure.db import SessionLocal
     from infrastructure.dataset_orm import DatasetMetadataModel, DatasetStatus
-    
+
     db = SessionLocal()
     try:
-        engine = MLTrainingEngine(spec, data_path, "ml/models/registry")
+        engine = MLTrainingEngine(spec, data_path, "ml/models/registry",
+                                  min_roc_auc=min_roc_auc, min_test_rows=min_test_rows)
         engine.train_and_evaluate()
         
         ds = db.query(DatasetMetadataModel).filter(DatasetMetadataModel.dataset_id == dataset_id).first()
@@ -422,7 +424,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 @router.post("/{dataset_id}/generate-cases", response_model=GenerateCasesResponse)
-def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: Session = Depends(get_db)):
+def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
+                                background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     service = DatasetLabService(db)
     ds = service.get_dataset(dataset_id)
     if not ds:
@@ -451,29 +454,20 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read dataset: {str(e)}")
         
-    # Best-effort: train a per-dataset shadow model on THIS dataset before we
-    # replay its rows, so every case is scored by a model fitted on its own data
-    # (falls back to the deterministic baseline if training can't produce a model
-    # that clears the quality gate). Shadow-only — the model never authorises an
-    # action; it only feeds the recovery-probability / ERV estimate.
+    # Train / refresh the per-dataset shadow model on a BACKGROUND task so it does
+    # not block this response (training two calibrated candidates took ~2 s of the
+    # request). This run's cases are scored by whatever model is on disk now — the
+    # deterministic baseline on a first upload — and the trained model is picked up
+    # on the next run and by the Insights view. Shadow-only: the model never
+    # authorises an action; it only feeds the recovery-probability / ERV estimate.
     spec = ds.training_suitability or {}
     if str(spec.get("readiness_status", "")).startswith("ML_TRAINING_READY") and len(df) >= 20:
-        try:
-            from application.ml_training import MLTrainingEngine
-            train_spec = dict(spec)
-            train_spec["dataset_id"] = dataset_id
-            # Honest bar: a model that does not clear 0.55 ROC-AUC is left
-            # REJECTED_LOW_QUALITY and the case pipeline uses the deterministic
-            # baseline instead. Row floor scales down for smaller real datasets.
-            meta = MLTrainingEngine(
-                train_spec, file_path, "ml/models/registry",
-                min_roc_auc=0.55, min_test_rows=200,
-            ).train_and_evaluate()
-            print(f"[generate-cases] trained {dataset_id}: status={meta.get('status')} "
-                  f"roc={meta.get('quality_gate', {}).get('roc_auc')} "
-                  f"model={meta.get('selected_model')}")
-        except Exception as e:
-            print(f"[generate-cases] auto-train skipped for {dataset_id}: {e}")
+        train_spec = dict(spec)
+        train_spec["dataset_id"] = dataset_id
+        # Honest bar: a model that does not clear 0.55 ROC-AUC is left
+        # REJECTED_LOW_QUALITY and the pipeline keeps using the baseline.
+        background_tasks.add_task(run_ml_training_task, dataset_id, train_spec,
+                                  file_path, 0.55, 200)
 
     # Extract mapping
     mappings = ds.recoverchain_signals or []
@@ -498,6 +492,11 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
     pipeline = CasePipelineService(case_repo, audit_repo)
     agent = AgentOrchestrator()
     v_engine = VerificationEngine()
+
+    # Batch the writes: each accepted row used to trigger 3-4 separate commits
+    # (ingest, advance, execute, verify). Flush during the loop so in-loop reads
+    # still see the rows, then commit the whole batch once at the end.
+    case_repo._defer_commit = True
 
     # Build the shadow predictor ONCE for this dataset and reuse it for every row.
     # Previously predict_recovery_for_case() re-scanned the model registry and
@@ -658,7 +657,11 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
         if case.case_id not in generated_ids:
             generated_ids.append(case.case_id)
             counters["rows_accepted"] += 1
-            
+
+    # Commit the whole batch once.
+    case_repo._defer_commit = False
+    db.commit()
+
     return {
         "status": "SUCCESS",
         "cases_generated": len(generated_ids),

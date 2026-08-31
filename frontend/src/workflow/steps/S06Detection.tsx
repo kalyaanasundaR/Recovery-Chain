@@ -13,7 +13,7 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
         started.current = true;
         (async () => {
             try {
-                const build = await buildCases(ctx.importId!, 200);
+                const build = await buildCases(ctx.importId!, 75);
                 const all = await listCases();
                 const ids: string[] = build.case_ids || [];
                 const mine = (all || []).filter((c: any) => ids.includes(c.case_id));
