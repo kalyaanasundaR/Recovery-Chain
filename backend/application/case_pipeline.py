@@ -22,13 +22,19 @@ from domain.models import (
 )
 
 
-def predict_recovery_for_case(case: RecoveryCase, dataset_id: Optional[str] = None) -> RecoveryPrediction:
+def predict_recovery_for_case(case: RecoveryCase, dataset_id: Optional[str] = None,
+                              predictor=None) -> RecoveryPrediction:
     """
     Shadow ML prediction with a deterministic fallback.
 
     If a dataset-isolated model exists it is used (shadow-only). Otherwise we fall
     back to DeterministicBaselinePredictor so downstream ERV / ranking is never
     driven by a meaningless 0.0.
+
+    `predictor` lets a caller that processes many rows for the same dataset (e.g.
+    /datasets/{id}/generate-cases) build one MLPaymentFailurePredictor and reuse
+    it, instead of re-scanning the model registry and re-loading the model on
+    every row. When omitted the behaviour is unchanged.
     """
     from application.recovery_predictor_ml import MLPaymentFailurePredictor
     from application.recovery_predictor import DeterministicBaselinePredictor
@@ -55,7 +61,8 @@ def predict_recovery_for_case(case: RecoveryCase, dataset_id: Optional[str] = No
     status = "SUCCESS"
     model_version = "unknown"
 
-    predictor = MLPaymentFailurePredictor(dataset_id=dataset_id)
+    if predictor is None:
+        predictor = MLPaymentFailurePredictor(dataset_id=dataset_id)
     if predictor.model is not None:
         try:
             res = predictor.predict_failure_risk(feature_dict)
@@ -111,8 +118,9 @@ class CasePipelineService:
         )
         return case
 
-    def predict(self, case: RecoveryCase, dataset_id: Optional[str] = None) -> RecoveryCase:
-        prediction = predict_recovery_for_case(case, dataset_id=dataset_id)
+    def predict(self, case: RecoveryCase, dataset_id: Optional[str] = None,
+                predictor=None) -> RecoveryCase:
+        prediction = predict_recovery_for_case(case, dataset_id=dataset_id, predictor=predictor)
         case.prediction = prediction
         self.audit.log_transition(
             case_id=case.case_id, from_state=case.current_state.value, to_state=case.current_state.value,
@@ -157,13 +165,14 @@ class CasePipelineService:
         return case
 
     # -- full run ------------------------------------------------------------
-    def advance(self, case: RecoveryCase, dataset_id: Optional[str] = None) -> RecoveryCase:
+    def advance(self, case: RecoveryCase, dataset_id: Optional[str] = None,
+                predictor=None) -> RecoveryCase:
         if case.current_state in (CaseState.STOPPED, CaseState.FULLY_RECOVERED,
                                   CaseState.CLOSED_NOT_RECOVERED):
             return case
         self.assess_risk(case)
         self.diagnose(case)
-        self.predict(case, dataset_id=dataset_id)
+        self.predict(case, dataset_id=dataset_id, predictor=predictor)
         self.recommend(case)
         self.policy_check(case)
         self.repo.save(case)

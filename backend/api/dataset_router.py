@@ -486,6 +486,7 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
     from infrastructure.repositories import SqlAlchemyCaseRepository, SqlAlchemyAuditRecorder
     from application.case_engine import CaseEngine, DuplicateEventException
     from application.case_pipeline import CasePipelineService
+    from application.recovery_predictor_ml import MLPaymentFailurePredictor
     from application.agents import AgentOrchestrator
     from application.verification_engine import VerificationEngine
     import uuid
@@ -497,6 +498,11 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
     pipeline = CasePipelineService(case_repo, audit_repo)
     agent = AgentOrchestrator()
     v_engine = VerificationEngine()
+
+    # Build the shadow predictor ONCE for this dataset and reuse it for every row.
+    # Previously predict_recovery_for_case() re-scanned the model registry and
+    # re-loaded the model on each of up to 500 rows.
+    shared_predictor = MLPaymentFailurePredictor(dataset_id=dataset_id)
 
     generated_ids = []
     
@@ -634,7 +640,7 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest, db: 
         # Run the same deterministic pipeline the live case flow uses:
         # risk -> diagnose -> predict (shadow ML or baseline) -> recommend (+ERV)
         # -> policy. Then, if policy permitted, act and verify in the sandbox.
-        case = pipeline.advance(case, dataset_id=dataset_id)
+        case = pipeline.advance(case, dataset_id=dataset_id, predictor=shared_predictor)
 
         from domain.models import PolicyDecisionStatus
         if case.policy_decision and case.policy_decision.status == PolicyDecisionStatus.PERMITTED \
