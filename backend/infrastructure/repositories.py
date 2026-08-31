@@ -197,8 +197,14 @@ class SqlAlchemyCaseRepository(ICaseRepository):
                 self.db.add(db_event)
         
         # We rely on the caller/dependency injector to call db.commit() OR we commit here.
-        # To make it transactional at the use-case level, we commit here.
-        self.db.commit()
+        # To make it transactional at the use-case level, we commit here — unless a
+        # bulk caller (e.g. /datasets/{id}/generate-cases) set `_defer_commit`, in
+        # which case we only flush so in-loop reads still see the row and the whole
+        # batch is committed once at the end.
+        if getattr(self, "_defer_commit", False):
+            self.db.flush()
+        else:
+            self.db.commit()
 
     def get_by_id(self, case_id: str) -> Optional[RecoveryCase]:
         # Skipping full mapping for brevity in this foundational phase, 
