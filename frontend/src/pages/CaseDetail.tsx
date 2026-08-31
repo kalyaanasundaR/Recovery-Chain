@@ -11,7 +11,6 @@ import SectionCard from '../components/SectionCard';
 import TimelineNode from '../components/TimelineNode';
 import { TimelineSkeleton } from '../components/SkeletonLoader';
 import { ErrorState } from '../components/EmptyState';
-import SafetyBanner from '../components/SafetyBanner';
 
 export default function CaseDetail() {
     const { caseId } = useParams();
@@ -110,7 +109,7 @@ export default function CaseDetail() {
                         </div>
                     </div>
 
-                    <SafetyBanner compact />
+
                 </div>
             </div>
 

@@ -6,7 +6,6 @@ import StatusBadge from '../components/StatusBadge';
 import { TableRowSkeleton } from '../components/SkeletonLoader';
 import { EmptyState, ErrorState } from '../components/EmptyState';
 import SectionCard from '../components/SectionCard';
-import SafetyBanner from '../components/SafetyBanner';
 
 export default function Cases() {
     const [cases, setCases] = useState<any[]>([]);
@@ -54,7 +53,7 @@ export default function Cases() {
                         </p>
                     </div>
 
-                    <SafetyBanner compact />
+
                 </div>
             </div>
 

@@ -20,7 +20,6 @@ import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
 import { MetricSkeleton, TableRowSkeleton } from '../components/SkeletonLoader';
 import { EmptyState, ErrorState } from '../components/EmptyState';
-import SafetyBanner from '../components/SafetyBanner';
 
 export default function Dashboard() {
     const [metrics, setMetrics] = useState<any>(null);
@@ -82,8 +81,16 @@ export default function Dashboard() {
 
     return (
         <div className="space-y-8 animate-fade-in pb-12">
-            {/* Safety Architecture Disclosure */}
-            <SafetyBanner />
+            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800/70 pb-4">
+                <div>
+                    <h1 className="text-2xl font-extrabold tracking-tight text-slate-100">Dashboard</h1>
+                    <p className="text-sm text-slate-400 mt-0.5">Live revenue-recovery exposure and case activity.</p>
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-slate-900/70 px-3 py-1.5 rounded-lg border border-slate-800">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Live
+                </span>
+            </div>
 
             {/* Primary Financial Exposure Section */}
             <div className="space-y-3">
