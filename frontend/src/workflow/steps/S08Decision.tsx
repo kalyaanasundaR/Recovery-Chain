@@ -27,8 +27,15 @@ export default function S08Decision({ ctx, patch, next, setAction }: StepProps) 
 
     return (
         <div className="max-w-2xl">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[--faint]">Recommended action</div>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight">{headline}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">What we’d do — and are we allowed?</h1>
+            <p className="mt-3 text-[--muted]">
+                Two separate things. First the <b className="text-[--ink]">rulebook suggests</b> an action.
+                Then the <b className="text-[--ink]">policy check</b> decides if it’s safe to run
+                automatically, or if a person must approve it. The suggestion can’t skip the check.
+            </p>
+
+            <div className="mt-8 text-[11px] font-semibold uppercase tracking-[0.14em] text-[--faint]">Suggested action</div>
+            <div className="mt-1 text-2xl font-bold tracking-tight">{headline}</div>
 
             {/* the proposal */}
             {top ? (

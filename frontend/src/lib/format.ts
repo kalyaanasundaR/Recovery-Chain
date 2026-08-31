@@ -108,3 +108,24 @@ export const ROLE_OF: Record<string, string> = {
     TRANSACTION_ID: 'Transaction ID', STATUS: 'Status', CURRENCY: 'Currency',
     PAYMENT_METHOD: 'Payment method',
 };
+
+// one plain line for each role — what it is, in words anyone gets
+export const ROLE_HINT: Record<string, string> = {
+    Customer: 'who owes the money',
+    Amount: 'how much is at stake',
+    Date: 'when the payment failed or was due',
+    Result: 'did it get paid, or fail',
+};
+
+// the four things every case needs, in order
+export const NEEDED_ROLES = ['Customer', 'Amount', 'Date', 'Result'] as const;
+
+// plain, short answers to "what is this?" for the jargon on the connection step
+export const PLAIN: Record<string, string> = {
+    features: 'Extra columns the model studies to spot patterns — like the failure reason or how overdue a bill is.',
+    heldout: 'Columns we deliberately hide from the model. Some are just an ID; some would let it "cheat" by seeing the answer.',
+    shadowModel: 'A trained second opinion. It guesses how likely money is to come back — but it never makes the decision. A fixed rulebook does.',
+    leak: 'A column that already contains the answer (or something only known afterwards). If the model saw it, its score would be fake.',
+    split: 'We train on older rows and test on newer ones, so the score reflects real unseen data — not memorised rows.',
+    baseline: 'A simple built-in estimate used until a trained model is ready, or when the data is too thin to trust one.',
+};
