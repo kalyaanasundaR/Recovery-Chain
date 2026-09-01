@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -22,33 +23,42 @@ class MockOutcomeVerificationAdapter(IOutcomeVerification):
     """SIMULATED settlement source.
 
     Explicit keywords in `external_reference` ("full" / "partial" / "fail" /
-    "pending") force a specific outcome — used by tests. For any other reference
-    (e.g. a real execution id) the outcome is derived deterministically from the
-    case id, so a genuine execution always reconciles to a terminal result
-    instead of hanging in PENDING forever.
+    "pending") force a specific outcome — used by tests. Otherwise the outcome
+    is drawn deterministically from the case id BUT weighted by the case's own
+    recovery-probability estimate, so a case the pipeline scored at 80% mostly
+    comes back and a 10% case mostly does not. This keeps the sandbox honest —
+    the "chance back" column and the "recovered" column tell one story instead
+    of contradicting each other.
     """
 
     def verify(self, case: RecoveryCase, external_reference: str) -> dict:
         ref = (external_reference or "").lower()
         src = "SANDBOX_SIMULATION"
+        amt = float(case.amount_at_risk.amount)
 
         if "full" in ref:
-            return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": case.amount_at_risk.amount, "source": src}
+            return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": amt, "source": src}
         if "partial" in ref:
-            return {"status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
-                    "amount": max(0.01, case.amount_at_risk.amount / 2), "source": src}
+            return {"status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED, "amount": max(0.01, amt / 2), "source": src}
         if "fail" in ref:
             return {"status": RecoveryOutcomeStatus.NOT_RECOVERED, "amount": 0.0, "source": src}
         if "pending" in ref:
             return {"status": RecoveryOutcomeStatus.PENDING_VERIFICATION, "amount": 0.0, "source": src}
 
-        # Deterministic sandbox outcome: ~70% full, ~20% partial, ~10% none.
-        bucket = int(__import__("hashlib").sha1(case.case_id.encode()).hexdigest(), 16) % 10
-        if bucket < 7:
-            return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": case.amount_at_risk.amount, "source": src}
-        if bucket < 9:
+        # A stable pseudo-random draw in [0, 1) for this case + execution.
+        seed = f"{case.case_id}:{external_reference}"
+        u = (int(__import__("hashlib").sha1(seed.encode()).hexdigest(), 16) % 10_000) / 10_000.0
+
+        p = 0.5
+        if case.prediction and case.prediction.recovery_probability is not None:
+            p = max(0.0, min(1.0, float(case.prediction.recovery_probability)))
+
+        if u < p * 0.72:                       # the confident core of the estimate lands in full
+            return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": amt, "source": src}
+        if u < p:                              # the tail of the estimate lands as a partial
+            frac = 0.25 + 0.55 * (u / max(p, 1e-6))
             return {"status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
-                    "amount": max(0.01, case.amount_at_risk.amount / 2), "source": src}
+                    "amount": round(max(0.01, amt * frac), 2), "source": src}
         return {"status": RecoveryOutcomeStatus.NOT_RECOVERED, "amount": 0.0, "source": src}
 
 class VerificationEngine:
@@ -59,31 +69,32 @@ class VerificationEngine:
         # 1. Ask authoritative source
         verification_data = self.adapter.verify(case, external_reference)
         
-        verified_amount = verification_data.get("amount", 0.0)
+        verified_amount = float(verification_data.get("amount", 0.0) or 0.0)
         source_status = verification_data.get("status", RecoveryOutcomeStatus.PENDING_VERIFICATION)
         source = verification_data.get("source", "UNKNOWN")
-        
+        expected = float(case.amount_at_risk.amount)
+
         # Financial Invariants Enforcement
         # INVARIANT 5: ActualAmountRecovered must be non-negative.
         if verified_amount < 0:
             verified_amount = 0.0
-            
+
         # INVARIANT 6: ActualAmountRecovered must not exceed the verified recoverable transaction amount.
-        if verified_amount > case.amount_at_risk.amount:
-            verified_amount = case.amount_at_risk.amount
-            
+        if verified_amount > expected:
+            verified_amount = expected
+
         # Determine exact Status deterministically
         if source_status == RecoveryOutcomeStatus.PENDING_VERIFICATION:
             final_status = RecoveryOutcomeStatus.PENDING_VERIFICATION
             verified_amount = 0.0
             reconciliation = "Pending external source response"
-        elif verified_amount >= case.amount_at_risk.amount:
+        elif verified_amount >= expected:
             final_status = RecoveryOutcomeStatus.FULLY_RECOVERED
-            verified_amount = case.amount_at_risk.amount
+            verified_amount = expected
             reconciliation = "Amount fully matches expected"
         elif verified_amount > 0:
             final_status = RecoveryOutcomeStatus.PARTIALLY_RECOVERED
-            reconciliation = f"Shortfall of {case.amount_at_risk.amount - verified_amount}"
+            reconciliation = f"Shortfall of {round(expected - verified_amount, 2)}"
         else:
             final_status = RecoveryOutcomeStatus.NOT_RECOVERED
             verified_amount = 0.0
@@ -97,7 +108,7 @@ class VerificationEngine:
             execution_id=execution_id,
             status=final_status,
             expected_amount=case.amount_at_risk,
-            actual_amount_recovered=Money(amount=verified_amount, currency=case.amount_at_risk.currency),
+            actual_amount_recovered=Money(amount=Decimal(f"{verified_amount:.4f}"), currency=case.amount_at_risk.currency),
             verification_source=source,
             external_reference=external_reference,
             reconciliation_status=reconciliation

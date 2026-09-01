@@ -57,31 +57,38 @@ class DeterministicBaselinePredictor:
         
         # Base probability defaults to 50%
         prob = 0.50
-        
-        # Risk Score inversely impacts recoverability generally
-        # A risk score of 1.0 (Critical) pulls probability down, 0.0 pulls it up.
-        prob += (0.5 - features["risk_score"]) * 0.4
+
+        # Risk score nudges recoverability — a critical case is somewhat harder
+        # to recover — but only gently: "high risk" does not mean "unrecoverable"
+        # (a large disputed invoice is high risk yet often still settles).
+        prob += (0.5 - features["risk_score"]) * 0.15
         
         # Category adjustments
         cat = features["cause_category"]
         if cat == RootCauseCategory.INSUFFICIENT_FUNDS.value:
-            prob += 0.20 # Often recoverable on payday
+            prob += 0.20  # often recoverable on payday
         elif cat == RootCauseCategory.NETWORK_FAILURE.value:
-            prob += 0.40 # Highly recoverable on retry
+            prob += 0.38  # highly recoverable on retry
+        elif cat == RootCauseCategory.PAYMENT_FRICTION.value:
+            prob += 0.10  # a nudge / assisted checkout often works
         elif cat == RootCauseCategory.PAYMENT_METHOD_INVALID.value:
-            prob -= 0.30 # Hard failure, requires customer action
+            prob -= 0.15  # needs the customer to update a card — still ~1 in 3
+        elif cat == RootCauseCategory.MANDATE_FAILURE.value:
+            prob -= 0.18  # re-authorisation needed
         elif cat == RootCauseCategory.MISSED_COMMITMENT.value:
-            prob -= 0.20 # Trust broken
+            prob -= 0.20  # trust broken
         elif cat == RootCauseCategory.UNRESOLVED_DISPUTE.value:
-            prob -= 0.40 # Requires human resolution
-            
-        # Age penalty: recovery odds fade as a debt gets older, but a 30–90 day
-        # overdue invoice is still very collectable. ~1%/day, capped at -40%.
+            prob -= 0.28  # needs human resolution, but disputes do settle
+
+        # Age penalty: recovery odds fade as a debt gets older, but the first
+        # week is "fresh" and a 30–90 day overdue invoice is still collectable.
+        # No penalty for 7 days, then ~0.4%/day, capped at -20% so it never
+        # single-handedly zeroes a case.
         days_old = features["age_hours"] / 24.0
-        prob -= min(0.40, days_old * 0.01)
+        prob -= min(0.20, max(0.0, days_old - 7.0) * 0.004)
         
-        # Bound probability between 0 and 1
-        prob = max(0.0, min(1.0, prob))
+        # Keep it a real estimate — never a flat 0% or 100%, which read as a bug.
+        prob = max(0.03, min(0.97, prob))
         
         return RecoveryPrediction(
             prediction_id=f"pred_{uuid.uuid4().hex[:8]}",
