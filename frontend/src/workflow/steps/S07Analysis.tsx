@@ -13,16 +13,37 @@ export default function S07Analysis({ ctx, patch, next, setAction }: StepProps) 
     const dx = snap.diagnosis;
     const pred = snap.ml_shadow_prediction;
     const ccy = snap.currency || 'INR';
-    const others = (ctx.caseCount || 1) > 1;
+    const ids: string[] = ctx.caseIds || [];
+    const many = ids.length > 1;
+    const pos = ids.indexOf(ctx.activeCaseId || '') + 1;
 
     return (
         <div className="max-w-2xl">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
                 <span className="font-mono text-sm text-[--faint]">{snap.case_id}</span>
-                {others && (
+                {many ? (
+                    <label className="flex items-center gap-2 text-xs text-[--faint]">
+                        case
+                        <select
+                            value={ctx.activeCaseId || ''}
+                            onChange={e => patch({ activeCaseId: e.target.value })}
+                            className="max-w-[11rem] rounded-md border border-[--line] bg-[--bg] px-2 py-1 font-mono text-xs text-[--ink]"
+                        >
+                            {ids.map((id, i) => (
+                                <option key={id} value={id}>{i + 1}/{ids.length} · {id}</option>
+                            ))}
+                        </select>
+                    </label>
+                ) : ((ctx.caseCount || 1) > 1 && (
                     <span className="text-xs text-[--faint]">highest-value of {ctx.caseCount} cases</span>
-                )}
+                ))}
             </div>
+            {many && (
+                <p className="mt-1 text-xs text-[--faint]">
+                    {pos <= 1 ? 'Showing the highest-value case.' : `Showing case ${pos} of ${ids.length}.`}
+                    {' '}Steps 8–10 continue with whichever you pick.
+                </p>
+            )}
 
             <div className="mt-3">
                 <BigStat label={`${snap.customer_id} · ${CATEGORY[snap.risk_category] || snap.risk_category}`}

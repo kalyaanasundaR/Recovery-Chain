@@ -18,6 +18,17 @@ from sklearn.calibration import CalibratedClassifierCV
 _EPOCH = pd.Timestamp("1970-01-01", tz="UTC")
 
 
+def _read_any(path: str) -> pd.DataFrame:
+    """Load a dataset file regardless of format. Training previously assumed CSV,
+    so every .xlsx / .parquet dataset silently fell back to the baseline."""
+    p = str(path).lower()
+    if p.endswith(".parquet"):
+        return pd.read_parquet(path)
+    if p.endswith((".xlsx", ".xls")):
+        return pd.read_excel(path)
+    return pd.read_csv(path)
+
+
 def _coerce_frame(X):
     """Make a raw dataframe model-safe: turn number-like text ("1,200", "₹ 45")
     into floats, date-like text into epoch-day floats, and leave everything else
@@ -146,8 +157,8 @@ class MLTrainingEngine:
     def train_and_evaluate(self):
         start_time = time.time()
         
-        # 1. Load Data
-        df = pd.read_csv(self.data_path)
+        # 1. Load Data (CSV / XLSX / Parquet)
+        df = _read_any(self.data_path)
         self._split_kind = "TEMPORAL"
 
         target_col = self.spec["target_column"]

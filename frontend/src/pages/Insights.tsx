@@ -204,6 +204,8 @@ export default function Insights() {
 
             <div>
                 <Link to="/cases" className="text-sm font-medium text-sky-400 hover:underline">See every case →</Link>
+                <a href="/api/system/cases.csv" download
+                    className="ml-5 text-sm font-medium text-sky-400 hover:underline">Download CSV</a>
             </div>
         </div>
     );
