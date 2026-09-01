@@ -40,7 +40,7 @@ export default function CasesList() {
         <div className="fade-in space-y-6">
             <div>
                 <h1 className="text-2xl font-bold text-slate-100">Cases</h1>
-                <p className="mt-1 text-slate-400">One row per failed payment we’re working on.</p>
+                <p className="mt-1 text-slate-400">One row per recovery case. Chance-back is the estimate; Recovered is what the sandbox settled.</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
