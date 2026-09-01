@@ -14,12 +14,13 @@ export default function Frame({ idx, action, motion, children }:
         if (!motion || !body.current) return;
         const el = body.current;
         const ctx = gsap.context(() => {
+            // Kept short and blur-free: a slow fade on every step reads as "loading".
             gsap.fromTo(el,
-                { autoAlpha: 0, y: 14, filter: 'blur(3px)' },
-                { autoAlpha: 1, y: 0, filter: 'blur(0px)', duration: 0.5, ease: 'power3.out' });
+                { opacity: 0, y: 10 },
+                { opacity: 1, y: 0, duration: 0.26, ease: 'power2.out' });
             gsap.fromTo(el.querySelectorAll('[data-stagger]'),
-                { autoAlpha: 0, y: 10 },
-                { autoAlpha: 1, y: 0, duration: 0.4, ease: 'power2.out', stagger: 0.05, delay: 0.08 });
+                { autoAlpha: 0, y: 8 },
+                { autoAlpha: 1, y: 0, duration: 0.3, ease: 'power2.out', stagger: 0.04 });
         }, el);
         return () => ctx.revert();
     }, [idx, motion]);

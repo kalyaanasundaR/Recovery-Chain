@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { StepProps } from '../types';
-import { buildCases, listCases } from '../../lib/api';
+import { buildCases, listCases, getCase } from '../../lib/api';
 import { Spinner, ErrorNote, Note, Row, BigStat } from '../../ui';
 
 export default function S06Detection({ ctx, patch, next, setAction }: StepProps) {
@@ -11,14 +11,25 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
     useEffect(() => {
         if (started.current) return;
         started.current = true;
+        // Already generated on an earlier visit (or a restored run) — don't
+        // re-run generate-cases (every row would be a duplicate). Just show it.
+        if (ctx.build?.case_ids?.length) { setDone(ctx.build); return; }
         (async () => {
             try {
                 const build = await buildCases(ctx.importId!, 75);
                 const all = await listCases();
-                const ids: string[] = build.case_ids || [];
-                const mine = (all || []).filter((c: any) => ids.includes(c.case_id));
-                const active = mine.slice().sort((a: any, b: any) => Number(b.amount_at_risk) - Number(a.amount_at_risk))[0];
-                patch({ build, caseIds: ids, caseCount: mine.length, activeCaseId: active?.case_id });
+                const idset = new Set<string>(build.case_ids || []);
+                // Order by value, highest first — so the picker's "1 of N" is the
+                // highest-value case and step 07 opens on it.
+                const mine = (all || []).filter((c: any) => idset.has(c.case_id))
+                    .sort((a: any, b: any) => Number(b.amount_at_risk) - Number(a.amount_at_risk));
+                const ids: string[] = mine.map((c: any) => c.case_id);
+                const active = mine[0];
+                // Prefetch the case AI Analysis will show so step 07 opens instantly
+                // (no spinner, no round-trip) instead of loading on arrival.
+                let snap: any = undefined;
+                if (active?.case_id) { try { snap = await getCase(active.case_id); } catch { /* step 07 will retry */ } }
+                patch({ build, caseIds: ids, caseCount: mine.length, activeCaseId: active?.case_id, snap });
                 setDone(build);
             } catch (e: any) { setErr(e.message); }
         })();
