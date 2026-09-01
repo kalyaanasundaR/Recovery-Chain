@@ -453,6 +453,61 @@ def list_system_cases(
         items=items
     )
 
+@router.get("/cases.csv")
+def export_cases_csv(
+    risk_category: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """M2 — download every recovery case as a flat CSV (one row per case)."""
+    import csv, io
+    from fastapi.responses import StreamingResponse
+
+    q = db.query(CaseModel)
+    if risk_category:
+        q = q.filter(CaseModel.risk_category == risk_category)
+
+    cols = ["case_id", "customer_id", "risk_category", "reference_id", "amount_at_risk",
+            "currency", "current_state", "risk_level", "cause_category",
+            "recovery_probability", "prediction_status", "recommended_action",
+            "expected_recoverable_value", "policy_status", "execution_status",
+            "outcome_status", "actual_amount_recovered", "created_at"]
+
+    def _g(blob, *path):
+        for p in path:
+            blob = (blob or {}).get(p) if isinstance(blob, dict) else None
+        return blob
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(cols)
+    for c in q.order_by(CaseModel.created_at.desc()).all():
+        rec_amt = _g(c.outcome, "actual_amount_recovered")
+        if isinstance(rec_amt, dict):
+            rec_amt = rec_amt.get("amount")
+        w.writerow([
+            c.case_id, c.customer_id,
+            c.risk_category.value if hasattr(c.risk_category, "value") else c.risk_category,
+            c.reference_id,
+            float(c.amount_at_risk) if c.amount_at_risk is not None else "",
+            c.currency,
+            c.current_state.value if hasattr(c.current_state, "value") else c.current_state,
+            _g(c.risk_assessment, "risk_level"),
+            _g(c.diagnosis, "cause_category"),
+            _g(c.prediction, "recovery_probability"),
+            _g(c.prediction, "prediction_status"),
+            _g(c.recommendation, "top_candidate", "action_type"),
+            float(c.expected_recoverable_value) if c.expected_recoverable_value is not None else "",
+            _g(c.policy_decision, "status"),
+            _g(c.execution_record, "status"),
+            _g(c.outcome, "status"),
+            rec_amt if rec_amt is not None else "",
+            c.created_at.isoformat() if c.created_at else "",
+        ])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": 'attachment; filename="recoverchain_cases.csv"'})
+
+
 @router.get("/cases/{case_id}", response_model=CaseDetailSnapshotResponse)
 def get_system_case_detail(case_id: str, db: Session = Depends(get_db)):
     """Complete safe 7-stage lifecycle snapshot for a single case."""

@@ -1,5 +1,5 @@
-import React, { Suspense, lazy, useMemo, useState, useCallback } from 'react';
-import { Sparkles } from 'lucide-react';
+import React, { Suspense, lazy, useMemo, useState, useCallback, useEffect } from 'react';
+import { Sparkles, RotateCcw } from 'lucide-react';
 import { STEPS, Ctx, Action } from './types';
 import Rail from './Rail';
 import Frame from './Frame';
@@ -20,11 +20,37 @@ import S10 from './steps/S11Result';
 const Backdrop = lazy(() => import('./Backdrop'));
 const PANELS = [S01, S02, S03, S04, S05, S06, S07, S08, S09, S10];
 
+// M3a — keep an in-progress run alive across a refresh / accidental navigation.
+const SAVE_KEY = 'rc-run';
+type Saved = { idx: number; ctx: Ctx };
+function loadSaved(): Saved | null {
+    try {
+        const raw = sessionStorage.getItem(SAVE_KEY);
+        if (!raw) return null;
+        const s = JSON.parse(raw);
+        if (typeof s?.idx === 'number' && s.idx > 0 && s.ctx?.importId) return s;
+    } catch { /* ignore */ }
+    return null;
+}
+
 export default function Workflow() {
-    const [idx, setIdx] = useState(0);
-    const [ctx, setCtx] = useState<Ctx>({});
+    const restored = useMemo(loadSaved, []);
+    const [idx, setIdx] = useState(restored?.idx ?? 0);
+    const [ctx, setCtx] = useState<Ctx>(restored?.ctx ?? {});
     const [action, setAction] = useState<Action | null>(null);
     const [motion, setMotion] = useMotionPref();
+
+    useEffect(() => {
+        try {
+            if (idx > 0 && ctx.importId) sessionStorage.setItem(SAVE_KEY, JSON.stringify({ idx, ctx }));
+            else sessionStorage.removeItem(SAVE_KEY);
+        } catch { /* ignore */ }
+    }, [idx, ctx]);
+
+    const restart = useCallback(() => {
+        try { sessionStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
+        setAction(null); setCtx({}); setIdx(0);
+    }, []);
 
     const patch = useCallback((p: Partial<Ctx>) => setCtx(c => ({ ...c, ...p })), []);
     const next = useCallback(() => { setAction(null); setIdx(i => Math.min(i + 1, PANELS.length - 1)); }, []);
@@ -60,6 +86,12 @@ export default function Workflow() {
                         >
                             <Sparkles size={13} /> motion
                         </button>
+                        {idx > 0 && (
+                            <button onClick={restart} title="Start over"
+                                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[--faint] hover:text-[--muted]">
+                                <RotateCcw size={13} /> restart
+                            </button>
+                        )}
                         <span>Step {STEPS[idx].n} / 10</span>
                     </div>
                 </div>

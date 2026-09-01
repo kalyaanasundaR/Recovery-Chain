@@ -610,8 +610,52 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
     for m in mappings:
         if m["canonical_field"] != "UNKNOWN":
             canonical_to_original[m["canonical_field"]] = m["original_column"]
-            
+
     from domain.models import RevenueEvent, RiskCategory, Money
+    from decimal import Decimal
+
+    # M1b — pick a per-row risk category from an event-type/category column so a
+    # subscription / checkout / invoice file drives the matching pipeline branch
+    # instead of every row being treated as a bare failed payment.
+    _CAT_TOKENS = ("event_type", "event_category", "revenue_stream", "risk_category",
+                   "category", "event_kind", "scenario", "channel")
+    cat_col = next((c for c in df.columns
+                    if any(t in str(c).lower() for t in _CAT_TOKENS)
+                    and c != canonical_to_original.get("PAYMENT_METHOD")), None)
+    _cur_col = next((c for c in df.columns if str(c).lower() in ("currency", "ccy", "currency_code")), None)
+    _default_ccy = os.getenv("DEFAULT_CURRENCY", "INR")
+
+    def _risk_for(rd):
+        if cat_col:
+            v = str(rd.get(cat_col, "")).strip().lower()
+            if any(k in v for k in ("checkout", "cart", "abandon", "basket")):
+                return RiskCategory.CHECKOUT_ABANDONMENT
+            if any(k in v for k in ("subscription", "renewal", "recurring", "mrr", "dunning", "membership")):
+                return RiskCategory.FAILED_SUBSCRIPTION
+            if any(k in v for k in ("invoice", "receivable", "overdue", "ar_", "accounts_receivable")):
+                return RiskCategory.OVERDUE_INVOICE
+            if any(k in v for k in ("promise", "ptp", "commitment", "arrangement")):
+                return RiskCategory.BROKEN_PROMISE
+        return RiskCategory.FAILED_PAYMENT
+
+    def _json_safe(v):
+        if v is None:
+            return None
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        if isinstance(v, (pd.Timestamp, datetime)):
+            return v.isoformat()
+        if isinstance(v, Decimal):
+            return float(v)
+        if hasattr(v, "item"):          # numpy scalar
+            try:
+                return v.item()
+            except Exception:
+                return str(v)
+        return v
     from infrastructure.repositories import SqlAlchemyCaseRepository, SqlAlchemyAuditRecorder
     from application.case_engine import CaseEngine, DuplicateEventException
     from application.case_pipeline import CasePipelineService
@@ -743,7 +787,9 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
 
         # Surface a failure reason for the diagnosis engine: any column whose name
         # looks like a reason/cause/decline code becomes raw_payload["failure_code"].
-        payload = dict(row_dict)
+        # M1c — every value is made JSON-safe (Timestamp / Decimal / numpy) so the
+        # raw_payload JSON column never fails to serialise.
+        payload = {k: _json_safe(v) for k, v in row_dict.items()}
         if "failure_code" not in payload:
             for k, v in row_dict.items():
                 kl = str(k).lower()
@@ -753,14 +799,16 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
                     payload["failure_code"] = str(v).strip().lower()
                     break
 
+        ccy = str(row_dict.get(_cur_col)).strip().upper() if _cur_col and not pd.isna(row_dict.get(_cur_col)) else _default_ccy
+
         event = RevenueEvent(
             event_id=f"evt_{uuid.uuid4().hex[:8]}",
             customer_id=customer_id,
-            risk_category=RiskCategory.FAILED_PAYMENT,
+            risk_category=_risk_for(row_dict),
             external_system=f"Dataset-{dataset_id}",
             external_event_id=f"row_{idx}",
             reference_id=tx_id,
-            amount=Money(amount=amt, currency="INR"),
+            amount=Money(amount=amt, currency=ccy),
             timestamp=ts,
             raw_payload=payload
         )

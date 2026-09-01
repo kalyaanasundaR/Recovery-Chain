@@ -56,15 +56,19 @@ class MLReadinessAnalyzer:
         exclusion_reasons = {}
         feature_columns = []
         
-        # We need a quick chunked read for class imbalance
+        # We need a quick read for class imbalance (CSV / XLSX / Parquet)
         class_balance = {}
-        if target_column and file_path.endswith('.csv'):
+        if target_column:
             try:
-                # Read just the target column in chunks to avoid memory issues
-                chunk_iter = pd.read_csv(file_path, usecols=[target_column], chunksize=100000)
-                val_counts = pd.Series(dtype='int64')
-                for chunk in chunk_iter:
-                    val_counts = val_counts.add(chunk[target_column].value_counts(), fill_value=0)
+                p = str(file_path).lower()
+                if p.endswith('.parquet'):
+                    tgt = pd.read_parquet(file_path, columns=[target_column])[target_column]
+                elif p.endswith(('.xlsx', '.xls')):
+                    tgt = pd.read_excel(file_path, usecols=[target_column])[target_column]
+                else:
+                    tgt = pd.concat([c[target_column] for c in
+                                     pd.read_csv(file_path, usecols=[target_column], chunksize=100000)])
+                val_counts = tgt.value_counts()
                 total = val_counts.sum()
                 if total > 0:
                     pos = int(val_counts.max())
