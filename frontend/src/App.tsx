@@ -22,9 +22,30 @@ export default function App() {
                 <Route path="/" element={<Workflow />} />
 
                 {/* model 2 — the Insights report + its exploration views (gated) */}
-                <Route path="/insights" element={<Report><Insights /></Report>} />
-                <Route path="/cases" element={<Report><CasesList /></Report>} />
-                <Route path="/cases/:caseId" element={<Report><CaseView /></Report>} />
+                <Route
+                    path="/insights"
+                    element={
+                        <Report>
+                            <Insights />
+                        </Report>
+                    }
+                />
+                <Route
+                    path="/cases"
+                    element={
+                        <Report>
+                            <CasesList />
+                        </Report>
+                    }
+                />
+                <Route
+                    path="/cases/:caseId"
+                    element={
+                        <Report>
+                            <CaseView />
+                        </Report>
+                    }
+                />
 
                 <Route path="/overview" element={<Navigate to="/insights" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo, useState, useCallback, useEffect } from 'react';
+import { Suspense, lazy, useMemo, useState, useCallback, useEffect } from 'react';
 import { Sparkles, RotateCcw } from 'lucide-react';
 import { STEPS, Ctx, Action } from './types';
 import Rail from './Rail';
@@ -29,7 +29,9 @@ function loadSaved(): Saved | null {
         if (!raw) return null;
         const s = JSON.parse(raw);
         if (typeof s?.idx === 'number' && s.idx > 0 && s.ctx?.importId) return s;
-    } catch { /* ignore */ }
+    } catch {
+        /* ignore */
+    }
     return null;
 }
 
@@ -42,26 +44,43 @@ export default function Workflow() {
 
     useEffect(() => {
         try {
-            if (idx > 0 && ctx.importId) sessionStorage.setItem(SAVE_KEY, JSON.stringify({ idx, ctx }));
+            if (idx > 0 && ctx.importId)
+                sessionStorage.setItem(SAVE_KEY, JSON.stringify({ idx, ctx }));
             else sessionStorage.removeItem(SAVE_KEY);
-        } catch { /* ignore */ }
+        } catch {
+            /* ignore */
+        }
     }, [idx, ctx]);
 
     const restart = useCallback(() => {
-        try { sessionStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
-        setAction(null); setCtx({}); setIdx(0);
+        try {
+            sessionStorage.removeItem(SAVE_KEY);
+        } catch {
+            /* ignore */
+        }
+        setAction(null);
+        setCtx({});
+        setIdx(0);
     }, []);
 
-    const patch = useCallback((p: Partial<Ctx>) => setCtx(c => ({ ...c, ...p })), []);
-    const next = useCallback(() => { setAction(null); setIdx(i => Math.min(i + 1, PANELS.length - 1)); }, []);
-    const back = useCallback(() => { setAction(null); setIdx(i => Math.max(i - 1, 0)); }, []);
+    const patch = useCallback((p: Partial<Ctx>) => setCtx((c) => ({ ...c, ...p })), []);
+    const next = useCallback(() => {
+        setAction(null);
+        setIdx((i) => Math.min(i + 1, PANELS.length - 1));
+    }, []);
+    const back = useCallback(() => {
+        setAction(null);
+        setIdx((i) => Math.max(i - 1, 0));
+    }, []);
 
     const Panel = PANELS[idx];
     const progress = idx / (PANELS.length - 1);
     const pct = useMemo(() => Math.round(progress * 100), [progress]);
 
     return (
-        <div className={`relative min-h-screen overflow-hidden text-[--ink] ${motion ? '' : 'bg-stage'}`}>
+        <div
+            className={`relative min-h-screen overflow-hidden text-[--ink] ${motion ? '' : 'bg-stage'}`}
+        >
             {motion && (
                 <Suspense fallback={null}>
                     <div className="pointer-events-none absolute inset-0 -z-10 opacity-45">
@@ -75,7 +94,9 @@ export default function Workflow() {
             <header className="sticky top-0 z-20 border-b border-[--line] bg-[--bg]/80 backdrop-blur">
                 <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
                     <div className="flex items-center gap-3">
-                        <span className="grid h-7 w-7 place-items-center rounded-md bg-[--accent] text-xs font-bold text-white">RC</span>
+                        <span className="grid h-7 w-7 place-items-center rounded-md bg-[--accent] text-xs font-bold text-white">
+                            RC
+                        </span>
                         <ModeSwitch />
                     </div>
                     <div className="flex items-center gap-4 text-xs text-[--faint]">
@@ -87,8 +108,11 @@ export default function Workflow() {
                             <Sparkles size={13} /> motion
                         </button>
                         {idx > 0 && (
-                            <button onClick={restart} title="Start over"
-                                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[--faint] hover:text-[--muted]">
+                            <button
+                                onClick={restart}
+                                title="Start over"
+                                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[--faint] hover:text-[--muted]"
+                            >
                                 <RotateCcw size={13} /> restart
                             </button>
                         )}
@@ -96,7 +120,10 @@ export default function Workflow() {
                     </div>
                 </div>
                 <div className="h-0.5 bg-[--line]">
-                    <div className="h-full bg-[--accent] transition-all duration-500" style={{ width: `${pct}%` }} />
+                    <div
+                        className="h-full bg-[--accent] transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                    />
                 </div>
             </header>
 
@@ -104,7 +131,12 @@ export default function Workflow() {
                 <div className="md:sticky md:top-24 md:self-start">
                     <Rail idx={idx} />
                     {idx > 0 && (
-                        <button onClick={back} className="mt-6 text-xs text-[--faint] hover:text-[--muted]">← back</button>
+                        <button
+                            onClick={back}
+                            className="mt-6 text-xs text-[--faint] hover:text-[--muted]"
+                        >
+                            ← back
+                        </button>
                     )}
                 </div>
 

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useSpring } from '@react-spring/three';
 import * as THREE from 'three';
@@ -13,7 +13,7 @@ import * as THREE from 'three';
 
 const COUNT = 2600;
 
-const VERT = /* glsl */`
+const VERT = /* glsl */ `
   uniform float uProgress;
   uniform float uTime;
   attribute float aSeed;
@@ -32,7 +32,7 @@ const VERT = /* glsl */`
   }
 `;
 
-const FRAG = /* glsl */`
+const FRAG = /* glsl */ `
   precision mediump float;
   varying float vGlow;
   void main() {

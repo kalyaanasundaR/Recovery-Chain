@@ -13,15 +13,15 @@ export const STEPS = [
 
 export interface Ctx {
     importId?: string;
-    detail?: any;          // GET /datasets/{id}
-    status?: any;          // GET /datasets/{id}/workflow-status
-    preview?: any;         // GET /datasets/{id}/preview
-    readiness?: any;       // POST /datasets/{id}/ml-readiness
-    build?: any;           // POST /datasets/{id}/generate-cases
+    detail?: any; // GET /datasets/{id}
+    status?: any; // GET /datasets/{id}/workflow-status
+    preview?: any; // GET /datasets/{id}/preview
+    readiness?: any; // POST /datasets/{id}/ml-readiness
+    build?: any; // POST /datasets/{id}/generate-cases
     caseIds?: string[];
     caseCount?: number;
     activeCaseId?: string;
-    snap?: any;            // GET /system/cases/{activeCaseId}
+    snap?: any; // GET /system/cases/{activeCaseId}
 }
 
 export interface StepProps {

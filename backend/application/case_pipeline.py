@@ -10,20 +10,21 @@ The individual API routes in api/main.py still exist for step-by-step control;
 this service is what `POST /events/batch?auto=true` and
 `POST /cases/{id}/advance` use so a submitted event actually moves.
 """
+
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from domain.models import (
+    CaseState,
+    Money,
     RecoveryCase,
     RecoveryPrediction,
-    Money,
-    CaseState,
 )
 
 
-def predict_recovery_for_case(case: RecoveryCase, dataset_id: Optional[str] = None,
-                              predictor=None) -> RecoveryPrediction:
+def predict_recovery_for_case(
+    case: RecoveryCase, dataset_id: str | None = None, predictor=None
+) -> RecoveryPrediction:
     """
     Shadow ML prediction with a deterministic fallback.
 
@@ -36,16 +37,19 @@ def predict_recovery_for_case(case: RecoveryCase, dataset_id: Optional[str] = No
     it, instead of re-scanning the model registry and re-loading the model on
     every row. When omitted the behaviour is unchanged.
     """
-    from application.recovery_predictor_ml import MLPaymentFailurePredictor
     from application.recovery_predictor import DeterministicBaselinePredictor
+    from application.recovery_predictor_ml import MLPaymentFailurePredictor
 
     # Start from the raw source row (dataset replay) so a per-dataset model sees
     # the same original columns it was trained on; canonical keys are layered on
     # top as a fallback for models that only know canonical inputs.
     src_event = case.linked_events[-1] if getattr(case, "linked_events", None) else None
     row = dict(src_event.raw_payload) if src_event and src_event.raw_payload else {}
-    ts = src_event.timestamp.isoformat() if src_event and src_event.timestamp else \
-        datetime.now(timezone.utc).isoformat()
+    ts = (
+        src_event.timestamp.isoformat()
+        if src_event and src_event.timestamp
+        else datetime.now(UTC).isoformat()
+    )
 
     feature_dict = {
         **row,
@@ -84,7 +88,7 @@ def predict_recovery_for_case(case: RecoveryCase, dataset_id: Optional[str] = No
         confidence=0.8,
         model_version=model_version,
         feature_version="1.0",
-        prediction_timestamp=datetime.now(timezone.utc),
+        prediction_timestamp=datetime.now(UTC),
         contributing_features=feature_dict,
         prediction_status=status,
     )
@@ -98,39 +102,61 @@ class CasePipelineService:
     # -- individual stages ------------------------------------------------
     def assess_risk(self, case: RecoveryCase) -> RecoveryCase:
         from application.risk_detector import DeterministicRiskDetector
+
         assessment = DeterministicRiskDetector().assess_risk(case)
         case.risk_assessment = assessment
         case.current_state = CaseState.ASSESSED
         self.audit.log_transition(
-            case_id=case.case_id, from_state=CaseState.OPEN.value, to_state=CaseState.ASSESSED.value,
-            evidence={"action": "risk_assessment", "score": assessment.score, "level": assessment.risk_level},
+            case_id=case.case_id,
+            from_state=CaseState.OPEN.value,
+            to_state=CaseState.ASSESSED.value,
+            evidence={
+                "action": "risk_assessment",
+                "score": assessment.score,
+                "level": assessment.risk_level,
+            },
         )
         return case
 
     def diagnose(self, case: RecoveryCase) -> RecoveryCase:
         from application.diagnosis_engine import DeterministicDiagnosisEngine
+
         diagnosis = DeterministicDiagnosisEngine().diagnose(case)
         case.diagnosis = diagnosis
         case.current_state = CaseState.DIAGNOSING
         self.audit.log_transition(
-            case_id=case.case_id, from_state=CaseState.ASSESSED.value, to_state=CaseState.DIAGNOSING.value,
-            evidence={"action": "diagnosis", "cause": diagnosis.cause_category, "confidence": diagnosis.confidence},
+            case_id=case.case_id,
+            from_state=CaseState.ASSESSED.value,
+            to_state=CaseState.DIAGNOSING.value,
+            evidence={
+                "action": "diagnosis",
+                "cause": diagnosis.cause_category,
+                "confidence": diagnosis.confidence,
+            },
         )
         return case
 
-    def predict(self, case: RecoveryCase, dataset_id: Optional[str] = None,
-                predictor=None) -> RecoveryCase:
+    def predict(
+        self, case: RecoveryCase, dataset_id: str | None = None, predictor=None
+    ) -> RecoveryCase:
         prediction = predict_recovery_for_case(case, dataset_id=dataset_id, predictor=predictor)
         case.prediction = prediction
         self.audit.log_transition(
-            case_id=case.case_id, from_state=case.current_state.value, to_state=case.current_state.value,
-            evidence={"action": "recovery_prediction", "probability": prediction.recovery_probability,
-                      "model_version": prediction.model_version, "status": prediction.prediction_status},
+            case_id=case.case_id,
+            from_state=case.current_state.value,
+            to_state=case.current_state.value,
+            evidence={
+                "action": "recovery_prediction",
+                "probability": prediction.recovery_probability,
+                "model_version": prediction.model_version,
+                "status": prediction.prediction_status,
+            },
         )
         return case
 
     def recommend(self, case: RecoveryCase) -> RecoveryCase:
         from application.action_evaluator import DeterministicActionEvaluator
+
         recommendation = DeterministicActionEvaluator().evaluate(case)
         case.recommendation = recommendation
         if recommendation.top_candidate:
@@ -139,16 +165,24 @@ class CasePipelineService:
                 amount=recommendation.top_candidate.expected_recoverable_value, currency=currency
             )
         case.current_state = CaseState.RECOMMENDING
-        top_type = recommendation.top_candidate.action_type if recommendation.top_candidate else "NONE"
+        top_type = (
+            recommendation.top_candidate.action_type if recommendation.top_candidate else "NONE"
+        )
         self.audit.log_transition(
-            case_id=case.case_id, from_state=CaseState.DIAGNOSING.value, to_state=CaseState.RECOMMENDING.value,
-            evidence={"action": "action_recommendation", "top_candidate": str(top_type),
-                      "status": recommendation.status.value},
+            case_id=case.case_id,
+            from_state=CaseState.DIAGNOSING.value,
+            to_state=CaseState.RECOMMENDING.value,
+            evidence={
+                "action": "action_recommendation",
+                "top_candidate": str(top_type),
+                "status": recommendation.status.value,
+            },
         )
         return case
 
     def policy_check(self, case: RecoveryCase) -> RecoveryCase:
         from application.policy_engine import DeterministicPolicyEngine
+
         context = None
         if hasattr(self.repo, "get_policy_context"):
             try:
@@ -159,16 +193,26 @@ class CasePipelineService:
         case.policy_decision = decision
         case.current_state = CaseState.POLICY_EVALUATED
         self.audit.log_transition(
-            case_id=case.case_id, from_state=CaseState.RECOMMENDING.value, to_state=CaseState.POLICY_EVALUATED.value,
-            evidence={"action": "policy_evaluation", "decision": decision.status.value, "reason": decision.reason},
+            case_id=case.case_id,
+            from_state=CaseState.RECOMMENDING.value,
+            to_state=CaseState.POLICY_EVALUATED.value,
+            evidence={
+                "action": "policy_evaluation",
+                "decision": decision.status.value,
+                "reason": decision.reason,
+            },
         )
         return case
 
     # -- full run ------------------------------------------------------------
-    def advance(self, case: RecoveryCase, dataset_id: Optional[str] = None,
-                predictor=None) -> RecoveryCase:
-        if case.current_state in (CaseState.STOPPED, CaseState.FULLY_RECOVERED,
-                                  CaseState.CLOSED_NOT_RECOVERED):
+    def advance(
+        self, case: RecoveryCase, dataset_id: str | None = None, predictor=None
+    ) -> RecoveryCase:
+        if case.current_state in (
+            CaseState.STOPPED,
+            CaseState.FULLY_RECOVERED,
+            CaseState.CLOSED_NOT_RECOVERED,
+        ):
             return case
         self.assess_risk(case)
         self.diagnose(case)

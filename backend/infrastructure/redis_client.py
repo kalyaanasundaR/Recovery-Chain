@@ -3,12 +3,14 @@ Redis is optional. The app runs fully offline without it — nothing on the
 request path depends on Redis today; only /health probes it. Set REDIS_URL to
 enable it.
 """
+
 import os
 
 REDIS_URL = os.getenv("REDIS_URL", "")  # empty = disabled
 
 try:
     import redis  # noqa: F401
+
     _REDIS_AVAILABLE = True
 except Exception:  # package not installed
     _REDIS_AVAILABLE = False

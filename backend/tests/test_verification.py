@@ -1,11 +1,17 @@
 import pytest
-from datetime import datetime, timezone
+
+from application.verification_engine import MockOutcomeVerificationAdapter, VerificationEngine
 from domain.models import (
-    RecoveryCase, RiskCategory, Money, 
-    RecoveryOutcomeStatus, CaseState,
-    ExecutionRecord, ExecutionStatus, ActionType
+    ActionType,
+    CaseState,
+    ExecutionRecord,
+    ExecutionStatus,
+    Money,
+    RecoveryCase,
+    RecoveryOutcomeStatus,
+    RiskCategory,
 )
-from application.verification_engine import VerificationEngine, MockOutcomeVerificationAdapter
+
 
 def create_mock_case_with_execution(amount: float = 100.0) -> RecoveryCase:
     return RecoveryCase(
@@ -24,13 +30,15 @@ def create_mock_case_with_execution(amount: float = 100.0) -> RecoveryCase:
             parameters={},
             idempotency_key="test_idem",
             status=ExecutionStatus.COMPLETED_SIMULATED,
-            adapter_used="MockExecutionAdapter"
-        )
+            adapter_used="MockExecutionAdapter",
+        ),
     )
+
 
 @pytest.fixture
 def engine():
     return VerificationEngine(MockOutcomeVerificationAdapter())
+
 
 def test_A_fully_recovered(engine):
     case = create_mock_case_with_execution(100.0)
@@ -39,12 +47,14 @@ def test_A_fully_recovered(engine):
     assert outcome.actual_amount_recovered.amount == 100.0
     assert engine.resolve_case_state(outcome.status) == CaseState.FULLY_RECOVERED
 
+
 def test_B_partially_recovered(engine):
     case = create_mock_case_with_execution(100.0)
     outcome = engine.reconcile(case, "sim_partial")
     assert outcome.status == RecoveryOutcomeStatus.PARTIALLY_RECOVERED
     assert outcome.actual_amount_recovered.amount == 50.0
     assert engine.resolve_case_state(outcome.status) == CaseState.PARTIALLY_RECOVERED
+
 
 def test_C_not_recovered(engine):
     case = create_mock_case_with_execution(100.0)
@@ -53,6 +63,7 @@ def test_C_not_recovered(engine):
     assert outcome.actual_amount_recovered.amount == 0.0
     assert engine.resolve_case_state(outcome.status) == CaseState.CLOSED_NOT_RECOVERED
 
+
 def test_D_pending_verification(engine):
     case = create_mock_case_with_execution(100.0)
     outcome = engine.reconcile(case, "sim_pending")
@@ -60,29 +71,40 @@ def test_D_pending_verification(engine):
     assert outcome.actual_amount_recovered.amount == 0.0
     assert engine.resolve_case_state(outcome.status) == CaseState.PENDING_VERIFICATION
 
+
 def test_invariant_negative_amount(engine):
     # Mocking adapter to return negative
     class BadAdapter(MockOutcomeVerificationAdapter):
         def verify(self, case, ref):
-            return {"status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED, "amount": -50.0, "source": "BAD"}
-    
+            return {
+                "status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
+                "amount": -50.0,
+                "source": "BAD",
+            }
+
     bad_engine = VerificationEngine(BadAdapter())
     case = create_mock_case_with_execution(100.0)
     outcome = bad_engine.reconcile(case, "test")
     assert outcome.actual_amount_recovered.amount == 0.0
-    assert outcome.status == RecoveryOutcomeStatus.NOT_RECOVERED # downgraded due to 0
+    assert outcome.status == RecoveryOutcomeStatus.NOT_RECOVERED  # downgraded due to 0
+
 
 def test_invariant_greater_amount(engine):
     # Mocking adapter to return > amount_at_risk
     class OverpayAdapter(MockOutcomeVerificationAdapter):
         def verify(self, case, ref):
-            return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": 200.0, "source": "BAD"}
-    
+            return {
+                "status": RecoveryOutcomeStatus.FULLY_RECOVERED,
+                "amount": 200.0,
+                "source": "BAD",
+            }
+
     bad_engine = VerificationEngine(OverpayAdapter())
     case = create_mock_case_with_execution(100.0)
     outcome = bad_engine.reconcile(case, "test")
     assert outcome.actual_amount_recovered.amount == 100.0
     assert outcome.status == RecoveryOutcomeStatus.FULLY_RECOVERED
+
 
 def test_H_actual_amount_not_derived_from_probability():
     case = create_mock_case_with_execution(100.0)

@@ -22,10 +22,16 @@ class MockExecutionAdapter:
         action = execution_request["action"]
 
         if action in _PAYMENT_ACTIONS:
-            return {"adapter_status": "COMPLETED_SIMULATED",
-                    "metadata": {"gateway": "sandbox", "message": "Payment retried successfully."}}
+            return {
+                "adapter_status": "COMPLETED_SIMULATED",
+                "metadata": {"gateway": "sandbox", "message": "Payment retried successfully."},
+            }
         if action in _COMMS_ACTIONS or "REMINDER" in action:
-            return {"adapter_status": "COMPLETED_SIMULATED",
-                    "metadata": {"gateway": "mock_twilio", "message": "Message sent."}}
-        return {"adapter_status": "FAILED",
-                "metadata": {"error": f"Unsupported action simulation: {action}"}}
+            return {
+                "adapter_status": "COMPLETED_SIMULATED",
+                "metadata": {"gateway": "mock_twilio", "message": "Message sent."},
+            }
+        return {
+            "adapter_status": "FAILED",
+            "metadata": {"error": f"Unsupported action simulation: {action}"},
+        }

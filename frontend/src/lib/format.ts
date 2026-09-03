@@ -1,9 +1,15 @@
 export const money = (n: any, ccy = 'INR') => {
     const v = Number(n ?? 0);
     try {
-        return v.toLocaleString('en-IN', { style: 'currency', currency: ccy, maximumFractionDigits: 2 });
+        return v.toLocaleString('en-IN', {
+            style: 'currency',
+            currency: ccy,
+            maximumFractionDigits: 2,
+        });
     } catch {
-        return '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (
+            '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        );
     }
 };
 
@@ -59,31 +65,50 @@ type Tone = 'green' | 'amber' | 'red' | 'blue' | 'gray' | 'violet';
 
 export function policyVerdict(status?: string): { label: string; tone: Tone; note: string } {
     switch (status) {
-        case 'PERMITTED': return { label: 'Approved', tone: 'green', note: 'Safe to act on automatically.' };
-        case 'WAIT': return { label: 'Wait', tone: 'amber', note: 'In a cooling period — try again later.' };
-        case 'ESCALATE': return { label: 'Needs approval', tone: 'amber', note: 'Above the automated limit — a person must approve.' };
-        case 'DENIED': return { label: 'Blocked', tone: 'red', note: 'A safety rule stops this action.' };
-        default: return { label: 'Not checked', tone: 'gray', note: '' };
+        case 'PERMITTED':
+            return { label: 'Approved', tone: 'green', note: 'Safe to act on automatically.' };
+        case 'WAIT':
+            return { label: 'Wait', tone: 'amber', note: 'In a cooling period — try again later.' };
+        case 'ESCALATE':
+            return {
+                label: 'Needs approval',
+                tone: 'amber',
+                note: 'Above the automated limit — a person must approve.',
+            };
+        case 'DENIED':
+            return { label: 'Blocked', tone: 'red', note: 'A safety rule stops this action.' };
+        default:
+            return { label: 'Not checked', tone: 'gray', note: '' };
     }
 }
 
 export function outcomeVerdict(status?: string): { label: string; tone: Tone } {
     switch (status) {
-        case 'FULLY_RECOVERED': return { label: 'Recovered', tone: 'green' };
-        case 'PARTIALLY_RECOVERED': return { label: 'Partially recovered', tone: 'amber' };
-        case 'NOT_RECOVERED': return { label: 'Not recovered', tone: 'red' };
-        case 'PENDING_VERIFICATION': return { label: 'Pending', tone: 'blue' };
-        default: return { label: 'Not run', tone: 'gray' };
+        case 'FULLY_RECOVERED':
+            return { label: 'Recovered', tone: 'green' };
+        case 'PARTIALLY_RECOVERED':
+            return { label: 'Partially recovered', tone: 'amber' };
+        case 'NOT_RECOVERED':
+            return { label: 'Not recovered', tone: 'red' };
+        case 'PENDING_VERIFICATION':
+            return { label: 'Pending', tone: 'blue' };
+        default:
+            return { label: 'Not run', tone: 'gray' };
     }
 }
 
 export function riskWord(level?: string): { label: string; tone: Tone } {
     switch (level) {
-        case 'CRITICAL': return { label: 'Critical', tone: 'red' };
-        case 'HIGH': return { label: 'High', tone: 'red' };
-        case 'MEDIUM': return { label: 'Medium', tone: 'amber' };
-        case 'LOW': return { label: 'Low', tone: 'gray' };
-        default: return { label: '—', tone: 'gray' };
+        case 'CRITICAL':
+            return { label: 'Critical', tone: 'red' };
+        case 'HIGH':
+            return { label: 'High', tone: 'red' };
+        case 'MEDIUM':
+            return { label: 'Medium', tone: 'amber' };
+        case 'LOW':
+            return { label: 'Low', tone: 'gray' };
+        default:
+            return { label: '—', tone: 'gray' };
     }
 }
 
@@ -101,11 +126,18 @@ export const CATEGORY: Record<string, string> = {
 
 // which of the four roles a detected canonical field fills (for step 4)
 export const ROLE_OF: Record<string, string> = {
-    CUSTOMER_ID: 'Customer', ACCOUNT_ID: 'Customer', ENTITY_ID: 'Customer',
-    AMOUNT: 'Amount', BALANCE: 'Amount',
-    TIMESTAMP: 'Date', SETTLEMENT_DATE: 'Date',
-    OUTCOME: 'Result', TARGET: 'Result',
-    TRANSACTION_ID: 'Transaction ID', STATUS: 'Status', CURRENCY: 'Currency',
+    CUSTOMER_ID: 'Customer',
+    ACCOUNT_ID: 'Customer',
+    ENTITY_ID: 'Customer',
+    AMOUNT: 'Amount',
+    BALANCE: 'Amount',
+    TIMESTAMP: 'Date',
+    SETTLEMENT_DATE: 'Date',
+    OUTCOME: 'Result',
+    TARGET: 'Result',
+    TRANSACTION_ID: 'Transaction ID',
+    STATUS: 'Status',
+    CURRENCY: 'Currency',
     PAYMENT_METHOD: 'Payment method',
 };
 
@@ -122,10 +154,14 @@ export const NEEDED_ROLES = ['Customer', 'Amount', 'Date', 'Result'] as const;
 
 // plain, short answers to "what is this?" for the jargon on the connection step
 export const PLAIN: Record<string, string> = {
-    features: 'Extra columns the model studies to spot patterns — like the failure reason or how overdue a bill is.',
-    heldout: 'Columns we deliberately hide from the model. Some are just an ID; some would let it "cheat" by seeing the answer.',
-    shadowModel: 'A trained second opinion. It guesses how likely money is to come back — but it never makes the decision. A fixed rulebook does.',
+    features:
+        'Extra columns the model studies to spot patterns — like the failure reason or how overdue a bill is.',
+    heldout:
+        'Columns we deliberately hide from the model. Some are just an ID; some would let it "cheat" by seeing the answer.',
+    shadowModel:
+        'A trained second opinion. It guesses how likely money is to come back — but it never makes the decision. A fixed rulebook does.',
     leak: 'A column that already contains the answer (or something only known afterwards). If the model saw it, its score would be fake.',
     split: 'We train on older rows and test on newer ones, so the score reflects real unseen data — not memorised rows.',
-    baseline: 'A simple built-in estimate used until a trained model is ready, or when the data is too thin to trust one.',
+    baseline:
+        'A simple built-in estimate used until a trained model is ready, or when the data is too thin to trust one.',
 };

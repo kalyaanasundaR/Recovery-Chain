@@ -9,11 +9,14 @@ export function useSnap(ctx: Ctx, patch: (p: Partial<Ctx>) => void) {
 
     const refresh = useCallback(async () => {
         if (!ctx.activeCaseId) return;
-        setLoading(true); setErr('');
+        setLoading(true);
+        setErr('');
         try {
             const snap = await getCase(ctx.activeCaseId);
             patch({ snap });
-        } catch (e: any) { setErr(e.message); }
+        } catch (e: any) {
+            setErr(e.message);
+        }
         setLoading(false);
     }, [ctx.activeCaseId, patch]);
 
@@ -21,5 +24,10 @@ export function useSnap(ctx: Ctx, patch: (p: Partial<Ctx>) => void) {
         if (!ctx.snap || ctx.snap.case_id !== ctx.activeCaseId) refresh();
     }, [ctx.activeCaseId]);
 
-    return { snap: ctx.snap?.case_id === ctx.activeCaseId ? ctx.snap : null, loading, err, refresh };
+    return {
+        snap: ctx.snap?.case_id === ctx.activeCaseId ? ctx.snap : null,
+        loading,
+        err,
+        refresh,
+    };
 }

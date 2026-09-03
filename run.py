@@ -27,6 +27,8 @@ def main():
     backend_env = os.environ.copy()
     backend_env["DATABASE_URL"] = "sqlite:///./test_recoverchain.db"
     backend_env["PYTHONPATH"] = "."
+    # This is the local, offline dev launcher — silence the prod-default warnings.
+    backend_env.setdefault("ALLOW_INSECURE_DEFAULTS", "1")
     
     print("==================================================", flush=True)
     print("  RECOVERCHAIN AI - UNIFIED APPLICATION LAUNCHER", flush=True)

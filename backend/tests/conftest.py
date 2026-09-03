@@ -22,6 +22,11 @@ os.environ["DATABASE_URL"] = _TEST_DB_URL
 os.environ.setdefault("ML_MIN_ROC_AUC", "0.0")
 os.environ.setdefault("ML_MIN_TEST_ROWS", "0")
 
+# The in-process rate limiter would trip on the hundreds of requests a full
+# suite run fires from a single TestClient identity. A dedicated test exercises
+# it explicitly by re-enabling this.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "0")
+
 if _TEST_DB_URL.startswith("sqlite:///") and os.path.exists(os.path.abspath(_TEST_DB_FILE)):
     try:
         os.remove(os.path.abspath(_TEST_DB_FILE))
@@ -34,9 +39,9 @@ import pytest
 @pytest.fixture(scope="session", autouse=True)
 def _test_database():
     """Create a clean schema for the session and drop the file afterwards."""
-    from infrastructure.db import engine, Base
-    import infrastructure.orm  # noqa: F401  (register models)
     import infrastructure.dataset_orm  # noqa: F401
+    import infrastructure.orm  # noqa: F401  (register models)
+    from infrastructure.db import Base, engine
 
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -55,6 +60,7 @@ def _bypass_api_key(_test_database):
     """Most tests don't care about auth. Override the API-key dependency for the
     whole suite; test_auth.py clears this to exercise the 401/403 path."""
     from api.main import app, verify_api_key
+
     app.dependency_overrides[verify_api_key] = lambda: "test-bypass"
     yield
     app.dependency_overrides.pop(verify_api_key, None)
@@ -66,10 +72,13 @@ def remove_artificial_delays(monkeypatch):
     Optimizes test execution by stripping artificial simulated delays
     (e.g., from SimulatedLLMAdapter or other simulated infra).
     """
+
     # Patch time.sleep globally during tests to eliminate artificial latency
     def mock_sleep(seconds):
         pass
+
     monkeypatch.setattr(time, "sleep", mock_sleep)
+
 
 def pytest_collection_modifyitems(config, items):
     for item in items:
@@ -77,7 +86,13 @@ def pytest_collection_modifyitems(config, items):
         is_integration = False
 
         # Check by file name
-        if item.fspath.basename in ["test_api_endpoints.py", "test_dataset_lab.py", "test_llm.py", "test_evaluation.py", "test_dataset_api.py"]:
+        if item.fspath.basename in [
+            "test_api_endpoints.py",
+            "test_dataset_lab.py",
+            "test_llm.py",
+            "test_evaluation.py",
+            "test_dataset_api.py",
+        ]:
             is_integration = True
 
         # Check by specific test name (e.g. hits API)
@@ -86,7 +101,11 @@ def pytest_collection_modifyitems(config, items):
 
         # Check by fixture requests
         if hasattr(item, "fixturenames"):
-            if "client" in item.fixturenames or "session" in item.fixturenames or "db" in item.fixturenames:
+            if (
+                "client" in item.fixturenames
+                or "session" in item.fixturenames
+                or "db" in item.fixturenames
+            ):
                 is_integration = True
 
         if is_integration:

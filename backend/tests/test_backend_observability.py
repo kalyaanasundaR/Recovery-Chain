@@ -1,23 +1,27 @@
-﻿import pytest
-import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+import pytest
 from fastapi.testclient import TestClient
+
 from api.main import app
-from infrastructure.db import SessionLocal
-from infrastructure.orm import CaseModel, EventModel, AuditModel
+from domain.models import CaseState, RiskCategory
 from infrastructure.dataset_orm import DatasetMetadataModel, DatasetStatus
-from domain.models import RiskCategory, CaseState
+from infrastructure.db import SessionLocal
+from infrastructure.orm import AuditModel, CaseModel, EventModel
+
 
 @pytest.fixture
 def client():
     return TestClient(app)
+
 
 @pytest.fixture
 def db():
     session = SessionLocal()
     yield session
     session.close()
+
 
 # 1. Health endpoint
 @pytest.mark.fast
@@ -35,6 +39,7 @@ def test_system_health_endpoint(client):
     assert "password" not in str(data).lower()
     assert "secret" not in str(data).lower()
 
+
 # 2. Summary counts
 @pytest.mark.fast
 def test_system_summary_endpoint(client):
@@ -51,6 +56,7 @@ def test_system_summary_endpoint(client):
     assert data["availability"]["datasets"] == "AVAILABLE"
     assert data["availability"]["cases"] == "AVAILABLE"
 
+
 # 3. Bounded dataset listing & pagination
 @pytest.mark.fast
 def test_system_datasets_listing_bounded(client, db):
@@ -61,14 +67,14 @@ def test_system_datasets_listing_bounded(client, db):
         filename="test.csv",
         file_type="csv",
         file_size_bytes=1024,
-        upload_timestamp=datetime.now(timezone.utc),
+        upload_timestamp=datetime.now(UTC),
         status=DatasetStatus.COMPLETED,
         row_count=50,
-        column_count=5
+        column_count=5,
     )
     db.add(meta)
     db.commit()
-    
+
     try:
         res = client.get("/system/datasets?limit=10&offset=0")
         assert res.status_code == 200
@@ -77,7 +83,7 @@ def test_system_datasets_listing_bounded(client, db):
         assert data["offset"] == 0
         assert data["total_count"] >= 1
         assert any(item["dataset_id"] == ds_id for item in data["items"])
-        
+
         # Verify raw data is never exposed
         for item in data["items"]:
             assert "raw_data" not in item
@@ -86,24 +92,25 @@ def test_system_datasets_listing_bounded(client, db):
         db.query(DatasetMetadataModel).filter(DatasetMetadataModel.dataset_id == ds_id).delete()
         db.commit()
 
+
 # 4. Dataset detail & 5. Nonexistent dataset & 6. Dataset isolation
 @pytest.mark.fast
 def test_system_dataset_detail_and_isolation(client, db):
     ds_a = f"ds_obs_a_{uuid.uuid4().hex[:6]}"
     ds_b = f"ds_obs_b_{uuid.uuid4().hex[:6]}"
-    
+
     meta_a = DatasetMetadataModel(
         dataset_id=ds_a,
         name="Dataset A",
         filename="ds_a.csv",
         file_type="csv",
         file_size_bytes=2048,
-        upload_timestamp=datetime.now(timezone.utc),
+        upload_timestamp=datetime.now(UTC),
         status=DatasetStatus.ML_READY,
         row_count=100,
         column_count=8,
         columns_profile={"col_a": "numeric"},
-        recoverchain_signals=[{"original_column": "col_a", "canonical_field": "AMOUNT"}]
+        recoverchain_signals=[{"original_column": "col_a", "canonical_field": "AMOUNT"}],
     )
     meta_b = DatasetMetadataModel(
         dataset_id=ds_b,
@@ -111,16 +118,16 @@ def test_system_dataset_detail_and_isolation(client, db):
         filename="ds_b.csv",
         file_type="csv",
         file_size_bytes=4096,
-        upload_timestamp=datetime.now(timezone.utc),
+        upload_timestamp=datetime.now(UTC),
         status=DatasetStatus.TRAINED,
         row_count=200,
         column_count=10,
         columns_profile={"col_b": "string"},
-        recoverchain_signals=[{"original_column": "col_b", "canonical_field": "CUSTOMER_ID"}]
+        recoverchain_signals=[{"original_column": "col_b", "canonical_field": "CUSTOMER_ID"}],
     )
     db.add_all([meta_a, meta_b])
     db.commit()
-    
+
     try:
         # Inspect Dataset A
         res_a = client.get(f"/system/datasets/{ds_a}")
@@ -130,24 +137,27 @@ def test_system_dataset_detail_and_isolation(client, db):
         assert data_a["name"] == "Dataset A"
         assert "col_a" in data_a["profile_summary"]
         assert "col_b" not in str(data_a["profile_summary"])  # Dataset isolation
-        
+
         # Inspect Dataset B
         res_b = client.get(f"/system/datasets/{ds_b}")
         assert res_b.status_code == 200
         data_b = res_b.json()
         assert data_b["dataset_id"] == ds_b
         assert data_b["name"] == "Dataset B"
-        
+
         # 5. Non-existent dataset
         res_none = client.get("/system/datasets/ds_non_existent_999999")
         assert res_none.status_code == 404
-        
+
         # Path traversal rejection
         res_traversal = client.get("/system/datasets/..%2Fetc%2Fpasswd")
         assert res_traversal.status_code in [400, 404]
     finally:
-        db.query(DatasetMetadataModel).filter(DatasetMetadataModel.dataset_id.in_([ds_a, ds_b])).delete()
+        db.query(DatasetMetadataModel).filter(
+            DatasetMetadataModel.dataset_id.in_([ds_a, ds_b])
+        ).delete()
         db.commit()
+
 
 # 7. Bounded case listing & 8. Case detail snapshot
 @pytest.mark.fast
@@ -168,7 +178,7 @@ def test_system_cases_listing_and_detail(client, db):
         recommendation={"top_candidate": {"action_type": "RETRY_PAYMENT"}},
         policy_decision={"status": "PERMITTED", "reason": "Passed cooldown gate"},
         execution_record={"status": "COMPLETED_SIMULATED", "adapter_used": "MockExecutionAdapter"},
-        outcome={"status": "FULLY_RECOVERED", "actual_amount_recovered": 750.00}
+        outcome={"status": "FULLY_RECOVERED", "actual_amount_recovered": 750.00},
     )
     event = EventModel(
         event_id=f"evt_obs_{uuid.uuid4().hex[:6]}",
@@ -180,8 +190,8 @@ def test_system_cases_listing_and_detail(client, db):
         risk_category=RiskCategory.FAILED_PAYMENT,
         amount=750.00,
         currency="USD",
-        timestamp=datetime.now(timezone.utc),
-        raw_payload={"reason": "insufficient_funds"}
+        timestamp=datetime.now(UTC),
+        raw_payload={"reason": "insufficient_funds"},
     )
     audit = AuditModel(
         id=f"aud_obs_{uuid.uuid4().hex[:6]}",
@@ -189,18 +199,18 @@ def test_system_cases_listing_and_detail(client, db):
         from_state="DETECTED",
         to_state="POLICY_EVALUATED",
         evidence={"action": "test_audit"},
-        timestamp=datetime.now(timezone.utc)
+        timestamp=datetime.now(UTC),
     )
     db.add_all([case, event, audit])
     db.commit()
-    
+
     try:
         # Listing
         res_list = client.get("/system/cases?limit=20")
         assert res_list.status_code == 200
         cases_data = res_list.json()
         assert any(c["case_id"] == cid for c in cases_data["items"])
-        
+
         # Detail Snapshot
         res_detail = client.get(f"/system/cases/{cid}")
         assert res_detail.status_code == 200
@@ -215,7 +225,7 @@ def test_system_cases_listing_and_detail(client, db):
         assert snap["policy_decision"]["status"] == "PERMITTED"
         assert snap["execution_record"]["status"] == "COMPLETED_SIMULATED"
         assert len(snap["audit_history"]) >= 1
-        
+
         # Non-existent case
         res_none = client.get("/system/cases/case_non_existent_9999")
         assert res_none.status_code == 404
@@ -224,6 +234,7 @@ def test_system_cases_listing_and_detail(client, db):
         db.query(EventModel).filter(EventModel.case_id == cid).delete()
         db.query(CaseModel).filter(CaseModel.case_id == cid).delete()
         db.commit()
+
 
 # 9. Model registry listing
 @pytest.mark.fast
@@ -239,6 +250,7 @@ def test_system_models_listing(client):
         assert "algorithm" in item
         assert "artifact_path" not in item  # No filesystem leak
 
+
 # 10. Events listing
 @pytest.mark.fast
 def test_system_events_listing(client):
@@ -252,6 +264,7 @@ def test_system_events_listing(client):
         assert "customer_id" in e
         assert "amount" in e
 
+
 # 11. Policy listing
 @pytest.mark.fast
 def test_system_policy_listing(client):
@@ -263,6 +276,7 @@ def test_system_policy_listing(client):
     for p in data["items"]:
         assert "case_id" in p
         assert "decision_status" in p
+
 
 # 12. Simulated executions listing
 @pytest.mark.fast
@@ -276,6 +290,7 @@ def test_system_executions_listing(client):
         assert "case_id" in ex
         assert ex["execution_mode"] == "SIMULATED/SANDBOX"
 
+
 # 13. Audit listing
 @pytest.mark.fast
 def test_system_audit_listing(client):
@@ -287,6 +302,7 @@ def test_system_audit_listing(client):
     for a in data["items"]:
         assert "audit_id" in a
 
+
 # 14. Collection maximum limit clamping
 @pytest.mark.fast
 def test_collection_max_limit_clamping(client):
@@ -295,17 +311,18 @@ def test_collection_max_limit_clamping(client):
     # FastAPI ge/le validation returns 422 for limit > 100
     assert res.status_code == 422
 
+
 # 15. Read-only / GET-only behavior verification
 @pytest.mark.fast
 def test_system_endpoints_are_strictly_get_only(client):
     # POST to /system/cases should be 405 Method Not Allowed
     res_post = client.post("/system/cases", json={"test": "data"})
     assert res_post.status_code == 405
-    
+
     # PUT to /system/health should be 405
     res_put = client.put("/system/health", json={})
     assert res_put.status_code == 405
-    
+
     # DELETE to /system/datasets/ds_123 should be 405
     res_delete = client.delete("/system/datasets/ds_123")
     assert res_delete.status_code == 405
