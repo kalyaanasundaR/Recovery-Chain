@@ -1,17 +1,26 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
-from datetime import datetime, timezone, timedelta
-from domain.models import (
-    RecoveryCase, RiskCategory, Money, 
-    ActionRecommendation, CandidateAction, ActionType, RecommendationStatus,
-    PolicyDecision, PolicyDecisionStatus
-)
+
 from application.agents import AgentOrchestrator
+from domain.models import (
+    ActionRecommendation,
+    ActionType,
+    CandidateAction,
+    Money,
+    PolicyDecision,
+    PolicyDecisionStatus,
+    RecommendationStatus,
+    RecoveryCase,
+    RiskCategory,
+)
 from infrastructure.adapters import MockExecutionAdapter
+
 
 def create_mock_case_with_policy(
     action: ActionType, status: PolicyDecisionStatus, age_hours: int = 0
 ) -> RecoveryCase:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return RecoveryCase(
         case_id="case_1",
         customer_id="cust_test",
@@ -26,11 +35,11 @@ def create_mock_case_with_policy(
                 action_type=action,
                 estimated_probability=0.8,
                 expected_recoverable_value=80.0,
-                rationale="Test"
+                rationale="Test",
             ),
             status=RecommendationStatus.RECOMMENDED,
             rationale="Test",
-            engine_version="test"
+            engine_version="test",
         ),
         policy_decision=PolicyDecision(
             decision_id="pol_1",
@@ -39,13 +48,15 @@ def create_mock_case_with_policy(
             rules_evaluated=[],
             failed_rules=[],
             reason="test",
-            timestamp=now - timedelta(hours=age_hours)
-        )
+            timestamp=now - timedelta(hours=age_hours),
+        ),
     )
+
 
 @pytest.fixture
 def orchestrator():
     return AgentOrchestrator(MockExecutionAdapter())
+
 
 def test_A_permitted_action_executes(orchestrator):
     case = create_mock_case_with_policy(ActionType.RETRY_PAYMENT, PolicyDecisionStatus.PERMITTED)
@@ -54,30 +65,46 @@ def test_A_permitted_action_executes(orchestrator):
     assert record.agent_type == "PaymentRecoveryAgent"
     assert record.idempotency_key == "case_1_RETRY_PAYMENT_pol_1"
 
+
 def test_B_C_D_denied_wait_escalate_cannot_execute(orchestrator):
     case_d = create_mock_case_with_policy(ActionType.RETRY_PAYMENT, PolicyDecisionStatus.DENIED)
     record_d = orchestrator.execute(case_d, ActionType.RETRY_PAYMENT)
     assert record_d.status.value == "REJECTED"
-    
+
     case_w = create_mock_case_with_policy(ActionType.RETRY_PAYMENT, PolicyDecisionStatus.WAIT)
     record_w = orchestrator.execute(case_w, ActionType.RETRY_PAYMENT)
     assert record_w.status.value == "REJECTED"
-    
+
     case_e = create_mock_case_with_policy(ActionType.RETRY_PAYMENT, PolicyDecisionStatus.ESCALATE)
     record_e = orchestrator.execute(case_e, ActionType.RETRY_PAYMENT)
     assert record_e.status.value == "REJECTED"
 
+
 def test_E_stale_policy_rejected(orchestrator):
-    case = create_mock_case_with_policy(ActionType.RETRY_PAYMENT, PolicyDecisionStatus.PERMITTED, age_hours=48)
+    case = create_mock_case_with_policy(
+        ActionType.RETRY_PAYMENT, PolicyDecisionStatus.PERMITTED, age_hours=48
+    )
     # Add a new event that makes it stale
     from domain.models import RevenueEvent
-    now = datetime.now(timezone.utc)
+
+    now = datetime.now(UTC)
     case.linked_events.append(
-        RevenueEvent(event_id="evt_1", customer_id="c", risk_category=RiskCategory.FAILED_PAYMENT, external_system="s", external_event_id="e", reference_id="r", amount=Money(amount=100.0), timestamp=now, raw_payload={})
+        RevenueEvent(
+            event_id="evt_1",
+            customer_id="c",
+            risk_category=RiskCategory.FAILED_PAYMENT,
+            external_system="s",
+            external_event_id="e",
+            reference_id="r",
+            amount=Money(amount=100.0),
+            timestamp=now,
+            raw_payload={},
+        )
     )
     record = orchestrator.execute(case, ActionType.RETRY_PAYMENT)
     assert record.status.value == "REJECTED"
     assert "stale" in record.result_metadata["error"]
+
 
 def test_F_policy_action_mismatch_rejected(orchestrator):
     # Policy says RETRY_PAYMENT
@@ -87,11 +114,15 @@ def test_F_policy_action_mismatch_rejected(orchestrator):
     assert record.status.value == "REJECTED"
     assert "does not match" in record.result_metadata["error"]
 
+
 def test_H_unsupported_agent(orchestrator):
-    case = create_mock_case_with_policy(ActionType.NO_ACTION_POSSIBLE, PolicyDecisionStatus.PERMITTED)
+    case = create_mock_case_with_policy(
+        ActionType.NO_ACTION_POSSIBLE, PolicyDecisionStatus.PERMITTED
+    )
     record = orchestrator.execute(case, ActionType.NO_ACTION_POSSIBLE)
     assert record.status.value == "REJECTED"
     assert "No specialized agent found" in record.result_metadata["error"]
+
 
 def test_J_execution_request_has_idempotency_key(orchestrator):
     case = create_mock_case_with_policy(ActionType.RETRY_PAYMENT, PolicyDecisionStatus.PERMITTED)

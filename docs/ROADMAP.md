@@ -2,6 +2,14 @@
 
 _Snapshot: 2026-08-31 · baseline `master` @ dac1317_
 
+> **Partially superseded (2026-09-01).** An upgrade pass landed most of **M1**
+> (Excel/Parquet training, per-row risk category, configurable currency via
+> `DEFAULT_CURRENCY`, `raw_payload` sanitisation) and started **M4** (ruff +
+> mypy + coverage in CI, frontend ESLint/Prettier, Docker build in CI) plus
+> security hardening not tracked here (dataset-route auth, rate limiting, CORS,
+> non-root image, nginx headers). Remaining: LLM narrator (M2), export (M2),
+> run-state persistence (M3), frontend tests (M4), and all of Tracks B/C.
+
 Twenty improvements grouped into **8 milestones** across **3 tracks**.
 
 ```

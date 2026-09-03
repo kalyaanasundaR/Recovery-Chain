@@ -38,7 +38,8 @@ See [CLAUDE.md](CLAUDE.md) for the architecture map and
 cd backend
 python -m venv venv
 venv\Scripts\activate                # Windows  (source venv/bin/activate on POSIX)
-pip install -r requirements.txt      # or: -r requirements-core.txt for a lean install
+pip install -r requirements.txt      # runtime;  -r requirements-core.txt for a lean install
+pip install -r requirements-dev.txt  # + ruff / mypy / pytest-cov / pip-audit (for CI parity)
 copy .env.example .env               # then edit
 ```
 
@@ -48,8 +49,14 @@ Environment (`.env` or shell):
 |---|---|---|
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/recoverchain` | use `sqlite:///./dev.db` for local |
 | `REDIS_URL` | `redis://localhost:6379/0` | only used by `/health` today |
-| `API_KEY` | `test-api-key` | required header `X-API-Key` on mutating routes |
+| `API_KEY` | `test-api-key` | required header `X-API-Key` on mutating routes; dev default logs a startup warning |
+| `CORS_ORIGINS` | `*` | explicit allow-list in prod (`*` disables credentialed CORS) |
+| `RATE_LIMIT_ENABLED` / `RATE_LIMIT_RPM` | `1` / `120` | per-key/-IP request limit |
+| `MAX_UPLOAD_BYTES` | `536870912` | dataset upload cap (512 MiB) |
 | `GEMINI_API_KEY` | _(unset)_ | only for the optional real-LLM evaluation mode |
+
+Full list and prod notes: [backend/.env.example](backend/.env.example). The
+frontend reads `VITE_API_KEY` at build time (see `frontend/.env.example`).
 
 Run the API (from `backend/`, with `PYTHONPATH=.`):
 
@@ -88,11 +95,16 @@ python run.py       # starts backend :8000 + frontend :5173 (forces SQLite)
 ```bash
 cd backend
 set PYTHONPATH=.
-pytest                    # full suite (uses an isolated throwaway SQLite DB)
+pytest                    # full suite, 216 tests (isolated throwaway SQLite DB)
 pytest -m fast            # fast unit tests only
 pytest -m integration     # DB / API / adapter tests
 pytest tests/test_policy.py::test_name -q   # single test
+pytest --cov             # coverage report (CI gate: 80%)
+
+ruff check . && ruff format --check .        # backend lint + format
 ```
+
+Frontend checks: `npm run lint`, `npm run format:check`, `npm run build` (tsc).
 
 The test suite forces its own database (`_pytest_recoverchain.db`, created fresh
 and dropped per session) — override with `RECOVERCHAIN_TEST_DATABASE_URL`.
@@ -100,7 +112,8 @@ and dropped per session) — override with `RECOVERCHAIN_TEST_DATABASE_URL`.
 ## Containers
 
 ```bash
-docker-compose up --build   # postgres :5432 + redis :6379 + api :8000 + web :5173
+cp .env.example .env         # set POSTGRES_PASSWORD, API_KEY, CORS_ORIGINS (compose requires them)
+docker-compose up --build    # postgres :5432 + redis :6379 + api :8000 + web :5173
 ```
 
 `postgres` + `redis` alone:
@@ -119,9 +132,11 @@ docker-compose up -d postgres redis
 | `POST` | `/cases/{id}/stop` | halt automated recovery (STOPPED) |
 | `GET` | `/cases`, `/cases/{id}`, `/dashboard/metrics` | dashboard reads |
 | `GET` | `/system/*` | read-only observability (cases, models, executions, audit, policy) |
-| `*` | `/datasets/*` | Dataset Lab |
+| `GET` | `/datasets`, `/datasets/{id}`, `/datasets/{id}/{preview,workflow-status}` | Dataset Lab reads (open) |
+| `POST` | `/datasets/{upload,…/analyze,…/ml-readiness,…/train,…/mapping,…/generate-cases}` | Dataset Lab writes (auth) |
 
-Mutating routes require header `X-API-Key` (`API_KEY` env, dev default `test-api-key`).
+Mutating routes — cases **and** datasets — require header `X-API-Key`
+(`API_KEY` env, dev default `test-api-key`). Requests are rate limited per key/IP.
 
 ## Repository layout
 

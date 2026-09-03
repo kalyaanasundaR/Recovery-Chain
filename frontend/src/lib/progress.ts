@@ -20,7 +20,7 @@ export function markWorkflowDone(): void {
     } catch {
         /* private mode / storage disabled — Insights stays locked, no crash */
     }
-    listeners.forEach(fn => fn());
+    listeners.forEach((fn) => fn());
 }
 
 export function resetWorkflow(): void {
@@ -29,7 +29,7 @@ export function resetWorkflow(): void {
     } catch {
         /* ignore */
     }
-    listeners.forEach(fn => fn());
+    listeners.forEach((fn) => fn());
 }
 
 export function useWorkflowDone(): boolean {

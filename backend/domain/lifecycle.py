@@ -1,5 +1,5 @@
-from domain.models import RecoveryCase, CaseState, PolicyDecisionStatus
-from typing import List
+from domain.models import CaseState, PolicyDecisionStatus, RecoveryCase
+
 
 class CaseLifecycleManager:
     @staticmethod
@@ -36,11 +36,11 @@ class CaseLifecycleManager:
     @staticmethod
     def apply_policy_decision(case: RecoveryCase) -> None:
         if case.current_state != CaseState.POLICY_REVIEW:
-            raise ValueError(f"Cannot apply policy unless in POLICY_REVIEW")
-        
+            raise ValueError("Cannot apply policy unless in POLICY_REVIEW")
+
         if not case.policy_decision:
             raise ValueError("No policy decision found on case")
-            
+
         status = case.policy_decision.status
         if status == PolicyDecisionStatus.PERMITTED:
             case.current_state = CaseState.APPROVED
@@ -50,5 +50,5 @@ class CaseLifecycleManager:
             case.current_state = CaseState.WAITING
         elif status == PolicyDecisionStatus.ESCALATE:
             case.current_state = CaseState.ESCALATED
-            
+
     # Add more state transitions as needed for execution and verification

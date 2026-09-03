@@ -3,8 +3,15 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { getCase, getCaseHistory, decideCase, executeCase, verifyCase } from '../lib/api';
 import {
-    money, moneyMaybe, pct, policyVerdict as safetyCheck, outcomeVerdict as outcome, riskWord,
-    WHY_FAILED, ACTION, CATEGORY,
+    money,
+    moneyMaybe,
+    pct,
+    policyVerdict as safetyCheck,
+    outcomeVerdict as outcome,
+    riskWord,
+    WHY_FAILED,
+    ACTION,
+    CATEGORY,
 } from '../lib/format';
 import { Card, Pill, Button, Spinner, ErrorNote } from '../ui';
 
@@ -27,10 +34,14 @@ export default function CaseView() {
     const [working, setWorking] = useState('');
 
     const load = () => {
-        setLoading(true); setErr('');
+        setLoading(true);
+        setErr('');
         Promise.all([getCase(caseId), getCaseHistory(caseId)])
-            .then(([snap, h]) => { setC(snap); setHistory(h || snap.audit_history || []); })
-            .catch(e => setErr(e.message))
+            .then(([snap, h]) => {
+                setC(snap);
+                setHistory(h || snap.audit_history || []);
+            })
+            .catch((e) => setErr(e.message))
             .finally(() => setLoading(false));
     };
     useEffect(load, [caseId]);
@@ -43,8 +54,11 @@ export default function CaseView() {
                 const ex = await executeCase(caseId).catch(() => null);
                 if (ex?.execution_id) await verifyCase(caseId, ex.execution_id).catch(() => null);
             }
-            await load(); setNote('');
-        } catch (e: any) { setErr(e.message); }
+            await load();
+            setNote('');
+        } catch (e: any) {
+            setErr(e.message);
+        }
         setWorking('');
     }
 
@@ -59,14 +73,18 @@ export default function CaseView() {
 
     return (
         <div className="fade-in mx-auto max-w-3xl space-y-6">
-            <Link to="/cases" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200">
+            <Link
+                to="/cases"
+                className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200"
+            >
                 <ArrowLeft size={15} /> All cases
             </Link>
 
             <div>
                 <h1 className="text-2xl font-bold text-slate-100">{c.customer_id}</h1>
                 <p className="mt-1 text-slate-400">
-                    {CATEGORY[c.risk_category] || c.risk_category} · {money(c.amount_at_risk)} at risk
+                    {CATEGORY[c.risk_category] || c.risk_category} · {money(c.amount_at_risk)} at
+                    risk
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                     <Pill tone={r.tone}>Risk: {r.label}</Pill>
@@ -78,15 +96,28 @@ export default function CaseView() {
             {needsOk && (
                 <Card title="This one needs your OK" subtitle={s.note}>
                     <p className="text-sm text-slate-300">
-                        Suggested action: <b>{rec ? (ACTION[rec.action_type] || rec.action_type) : '—'}</b>.
-                        Reason it was held: {c.policy_decision?.reason}
+                        Suggested action:{' '}
+                        <b>{rec ? ACTION[rec.action_type] || rec.action_type : '—'}</b>. Reason it
+                        was held: {c.policy_decision?.reason}
                     </p>
-                    <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+                    <textarea
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        rows={2}
                         placeholder="Add a note (optional)"
-                        className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm" />
+                        className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                    />
                     <div className="mt-3 flex gap-3">
-                        <Button onClick={() => decide('APPROVE')} disabled={!!working}>{working || 'Approve & run'}</Button>
-                        <Button variant="ghost" onClick={() => decide('REJECT')} disabled={!!working}>Reject</Button>
+                        <Button onClick={() => decide('APPROVE')} disabled={!!working}>
+                            {working || 'Approve & run'}
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            onClick={() => decide('REJECT')}
+                            disabled={!!working}
+                        >
+                            Reject
+                        </Button>
                     </div>
                 </Card>
             )}
@@ -97,19 +128,29 @@ export default function CaseView() {
                         {CATEGORY[c.risk_category] || c.risk_category} of {money(c.amount_at_risk)}
                     </Line>
                     <Line label="Why it failed">
-                        {c.diagnosis ? (WHY_FAILED[c.diagnosis.cause_category] || c.diagnosis.cause_category) : 'Not worked out yet'}
+                        {c.diagnosis
+                            ? WHY_FAILED[c.diagnosis.cause_category] || c.diagnosis.cause_category
+                            : 'Not worked out yet'}
                     </Line>
                     <Line label="Chance of getting it back">
                         {c.ml_shadow_prediction ? (
-                            <>~{pct(c.ml_shadow_prediction.recovery_probability)}{' '}
-                                <span className="text-slate-500">(a helper estimate — a person always decides)</span></>
-                        ) : '—'}
+                            <>
+                                ~{pct(c.ml_shadow_prediction.recovery_probability)}{' '}
+                                <span className="text-slate-500">
+                                    (a helper estimate — a person always decides)
+                                </span>
+                            </>
+                        ) : (
+                            '—'
+                        )}
                     </Line>
                     <Line label="Likely recovery amount">
                         {c.expected_recoverable_value ? money(c.expected_recoverable_value) : '—'}
                     </Line>
                     <Line label="What we’ll try">
-                        {rec ? (ACTION[rec.action_type] || rec.action_type) : 'Nothing suitable found'}
+                        {rec
+                            ? ACTION[rec.action_type] || rec.action_type
+                            : 'Nothing suitable found'}
                     </Line>
                     <Line label="Safety check">
                         <span className="font-medium">{s.label}.</span> {s.note}
@@ -120,9 +161,14 @@ export default function CaseView() {
                             : 'Not yet'}
                     </Line>
                     <Line label="Result">
-                        {c.outcome
-                            ? <>{o.label} — {moneyMaybe(c.outcome.actual_amount_recovered)} of {moneyMaybe(c.outcome.expected_amount)} recovered</>
-                            : 'Not run yet'}
+                        {c.outcome ? (
+                            <>
+                                {o.label} — {moneyMaybe(c.outcome.actual_amount_recovered)} of{' '}
+                                {moneyMaybe(c.outcome.expected_amount)} recovered
+                            </>
+                        ) : (
+                            'Not run yet'
+                        )}
                     </Line>
                 </div>
             </Card>
@@ -131,7 +177,9 @@ export default function CaseView() {
                 <ol className="space-y-2 text-sm">
                     {history.map((h, i) => (
                         <li key={i} className="flex justify-between gap-4 text-slate-400">
-                            <span className="text-slate-300">{h.evidence?.action || h.to_state}</span>
+                            <span className="text-slate-300">
+                                {h.evidence?.action || h.to_state}
+                            </span>
                             <span className="tabular-nums text-slate-500">
                                 {h.timestamp ? new Date(h.timestamp).toLocaleTimeString() : ''}
                             </span>

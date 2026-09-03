@@ -1,13 +1,14 @@
+from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
-from typing import List, Optional
-from datetime import datetime, timezone
+
 from pydantic import BaseModel, Field
 
-from decimal import Decimal
 
 class Money(BaseModel):
     amount: Decimal
     currency: str = "INR"
+
 
 class RiskCategory(str, Enum):
     FAILED_PAYMENT = "FAILED_PAYMENT"
@@ -15,6 +16,7 @@ class RiskCategory(str, Enum):
     FAILED_SUBSCRIPTION = "FAILED_SUBSCRIPTION"
     OVERDUE_INVOICE = "OVERDUE_INVOICE"
     BROKEN_PROMISE = "BROKEN_PROMISE"
+
 
 class CaseState(str, Enum):
     DETECTED = "DETECTED"
@@ -38,17 +40,19 @@ class CaseState(str, Enum):
     PENDING_VERIFICATION = "PENDING_VERIFICATION"
     STOPPED = "STOPPED"
 
+
 class RevenueEvent(BaseModel):
     event_id: str
     customer_id: str
     risk_category: RiskCategory
     external_system: str
     external_event_id: str
-    reference_id: Optional[str] = None
+    reference_id: str | None = None
     amount: Money
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    ingested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    ingested_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     raw_payload: dict
+
 
 class RiskLevel(str, Enum):
     LOW = "LOW"
@@ -56,20 +60,25 @@ class RiskLevel(str, Enum):
     HIGH = "HIGH"
     CRITICAL = "CRITICAL"
 
+
 class RiskAssessment(BaseModel):
     score: float  # 0.0 to 1.0
     risk_level: RiskLevel
     detection_status: str
-    primary_risk_signals: dict  # Category-specific signals (e.g. {"failure_count": 3, "amount": 100})
-    contributing_evidence_references: List[str]  # e.g., ["evt_1", "evt_2"]
-    assessment_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    primary_risk_signals: (
+        dict  # Category-specific signals (e.g. {"failure_count": 3, "amount": 100})
+    )
+    contributing_evidence_references: list[str]  # e.g., ["evt_1", "evt_2"]
+    assessment_timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     detector_version: str = "deterministic-v1.0"
     confidence: float = 1.0
+
 
 class DiagnosisStatus(str, Enum):
     CONFIRMED = "CONFIRMED"
     INFERRED = "INFERRED"
     UNKNOWN = "UNKNOWN"
+
 
 class RootCauseCategory(str, Enum):
     # FAILED_PAYMENT
@@ -88,15 +97,17 @@ class RootCauseCategory(str, Enum):
     UNKNOWN = "UNKNOWN"
     CONFLICTING_EVIDENCE = "CONFLICTING_EVIDENCE"
 
+
 class RootCauseDiagnosis(BaseModel):
     diagnosis_id: str
     cause_category: RootCauseCategory
     confidence: float
     status: DiagnosisStatus
     supporting_signals: dict
-    evidence_references: List[str]
+    evidence_references: list[str]
     diagnostic_method: str = "deterministic-v1.0"
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
 
 class RecoveryPrediction(BaseModel):
     prediction_id: str
@@ -104,9 +115,10 @@ class RecoveryPrediction(BaseModel):
     confidence: float
     model_version: str
     feature_version: str
-    prediction_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    prediction_timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     contributing_features: dict
     prediction_status: str
+
 
 class ActionType(str, Enum):
     # FAILED_PAYMENT
@@ -130,24 +142,28 @@ class ActionType(str, Enum):
     ESCALATE_TO_HUMAN = "ESCALATE_TO_HUMAN"
     NO_ACTION_POSSIBLE = "NO_ACTION_POSSIBLE"
 
+
 class CandidateAction(BaseModel):
     action_type: ActionType
     estimated_probability: float
     expected_recoverable_value: float
     rationale: str
 
+
 class RecommendationStatus(str, Enum):
     RECOMMENDED = "RECOMMENDED"
     INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
 
+
 class ActionRecommendation(BaseModel):
     recommendation_id: str
-    candidates: List[CandidateAction]
-    top_candidate: Optional[CandidateAction]
+    candidates: list[CandidateAction]
+    top_candidate: CandidateAction | None
     status: RecommendationStatus
     rationale: str
     engine_version: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
 
 class PolicyDecisionStatus(str, Enum):
     PERMITTED = "PERMITTED"
@@ -155,19 +171,22 @@ class PolicyDecisionStatus(str, Enum):
     WAIT = "WAIT"
     ESCALATE = "ESCALATE"
 
+
 class RuleResult(BaseModel):
     rule_name: str
     passed: bool
     details: str
 
+
 class PolicyDecision(BaseModel):
     decision_id: str
     status: PolicyDecisionStatus
     policy_version: str
-    rules_evaluated: List[RuleResult]
-    failed_rules: List[RuleResult]
+    rules_evaluated: list[RuleResult]
+    failed_rules: list[RuleResult]
     reason: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
 
 class RecoveryOutcomeStatus(str, Enum):
     FULLY_RECOVERED = "FULLY_RECOVERED"
@@ -175,18 +194,18 @@ class RecoveryOutcomeStatus(str, Enum):
     NOT_RECOVERED = "NOT_RECOVERED"
     PENDING_VERIFICATION = "PENDING_VERIFICATION"
 
+
 class RecoveryOutcome(BaseModel):
     outcome_id: str
     case_id: str
-    execution_id: Optional[str] = None
+    execution_id: str | None = None
     status: RecoveryOutcomeStatus
     expected_amount: Money
     actual_amount_recovered: Money
     verification_source: str
     external_reference: str
     reconciliation_status: str
-    verification_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
+    verification_timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ExecutionStatus(str, Enum):
@@ -195,6 +214,7 @@ class ExecutionStatus(str, Enum):
     COMPLETED_SIMULATED = "COMPLETED_SIMULATED"
     FAILED = "FAILED"
     REJECTED = "REJECTED"
+
 
 class ExecutionRecord(BaseModel):
     execution_id: str
@@ -206,24 +226,25 @@ class ExecutionRecord(BaseModel):
     idempotency_key: str
     status: ExecutionStatus
     adapter_used: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     result_metadata: dict = Field(default_factory=dict)
+
 
 class RecoveryCase(BaseModel):
     case_id: str
     customer_id: str
     risk_category: RiskCategory
-    reference_id: Optional[str] = None
+    reference_id: str | None = None
     amount_at_risk: Money
-    expected_recoverable_value: Optional[Money] = None
-    actual_amount_recovered: Optional[Money] = None
+    expected_recoverable_value: Money | None = None
+    actual_amount_recovered: Money | None = None
     current_state: CaseState = CaseState.DETECTED
-    linked_events: List[RevenueEvent] = Field(default_factory=list)
-    risk_assessment: Optional[RiskAssessment] = None
-    diagnosis: Optional[RootCauseDiagnosis] = None
-    prediction: Optional[RecoveryPrediction] = None
-    recommendation: Optional[ActionRecommendation] = None
-    policy_decision: Optional[PolicyDecision] = None
-    execution_record: Optional[ExecutionRecord] = None
-    candidate_action: Optional[CandidateAction] = None
-    outcome: Optional[RecoveryOutcome] = None
+    linked_events: list[RevenueEvent] = Field(default_factory=list)
+    risk_assessment: RiskAssessment | None = None
+    diagnosis: RootCauseDiagnosis | None = None
+    prediction: RecoveryPrediction | None = None
+    recommendation: ActionRecommendation | None = None
+    policy_decision: PolicyDecision | None = None
+    execution_record: ExecutionRecord | None = None
+    candidate_action: CandidateAction | None = None
+    outcome: RecoveryOutcome | None = None

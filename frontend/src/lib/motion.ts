@@ -14,11 +14,17 @@ export function useMotionPref(): [boolean, (v: boolean) => void] {
             const s = localStorage.getItem(KEY);
             if (s === '0') return false;
             if (s === '1') return true;
-        } catch { /* ignore */ }
+        } catch {
+            /* ignore */
+        }
         return !prefersReducedMotion();
     });
     useEffect(() => {
-        try { localStorage.setItem(KEY, on ? '1' : '0'); } catch { /* ignore */ }
+        try {
+            localStorage.setItem(KEY, on ? '1' : '0');
+        } catch {
+            /* ignore */
+        }
     }, [on]);
     return [on, setOn];
 }

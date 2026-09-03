@@ -1,7 +1,9 @@
-from sqlalchemy import Column, String, Integer, DateTime, JSON, Enum
-from infrastructure.db import Base
-from datetime import datetime, timezone
 import enum
+
+from sqlalchemy import JSON, Column, DateTime, Enum, Integer, String
+
+from infrastructure.db import Base
+
 
 class DatasetStatus(str, enum.Enum):
     PENDING = "PENDING"
@@ -16,6 +18,7 @@ class DatasetStatus(str, enum.Enum):
     TRAINED = "TRAINED"
     FAILED = "FAILED"
 
+
 class DatasetMetadataModel(Base):
     __tablename__ = "datasets"
 
@@ -27,13 +30,13 @@ class DatasetMetadataModel(Base):
     upload_timestamp = Column(DateTime, nullable=False)
     status = Column(Enum(DatasetStatus), nullable=False, default=DatasetStatus.PENDING)
     error_message = Column(String, nullable=True)
-    
+
     # General Stats
     row_count = Column(Integer, nullable=True)
     column_count = Column(Integer, nullable=True)
     duplicate_row_count = Column(Integer, nullable=True)
     total_missing_values = Column(Integer, nullable=True)
-    
+
     # Detailed Analysis (Stored as JSON for flexibility)
     columns_profile = Column(JSON, nullable=True)
     data_quality_report = Column(JSON, nullable=True)

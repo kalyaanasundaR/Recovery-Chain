@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StepProps } from '../types';
 import { buildCases, listCases, getCase } from '../../lib/api';
 import { Spinner, ErrorNote, Note, Row, BigStat } from '../../ui';
@@ -13,7 +13,10 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
         started.current = true;
         // Already generated on an earlier visit (or a restored run) — don't
         // re-run generate-cases (every row would be a duplicate). Just show it.
-        if (ctx.build?.case_ids?.length) { setDone(ctx.build); return; }
+        if (ctx.build?.case_ids?.length) {
+            setDone(ctx.build);
+            return;
+        }
         (async () => {
             try {
                 const build = await buildCases(ctx.importId!, 75);
@@ -21,21 +24,38 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
                 const idset = new Set<string>(build.case_ids || []);
                 // Order by value, highest first — so the picker's "1 of N" is the
                 // highest-value case and step 07 opens on it.
-                const mine = (all || []).filter((c: any) => idset.has(c.case_id))
+                const mine = (all || [])
+                    .filter((c: any) => idset.has(c.case_id))
                     .sort((a: any, b: any) => Number(b.amount_at_risk) - Number(a.amount_at_risk));
                 const ids: string[] = mine.map((c: any) => c.case_id);
                 const active = mine[0];
                 // Prefetch the case AI Analysis will show so step 07 opens instantly
                 // (no spinner, no round-trip) instead of loading on arrival.
                 let snap: any = undefined;
-                if (active?.case_id) { try { snap = await getCase(active.case_id); } catch { /* step 07 will retry */ } }
-                patch({ build, caseIds: ids, caseCount: mine.length, activeCaseId: active?.case_id, snap });
+                if (active?.case_id) {
+                    try {
+                        snap = await getCase(active.case_id);
+                    } catch {
+                        /* step 07 will retry */
+                    }
+                }
+                patch({
+                    build,
+                    caseIds: ids,
+                    caseCount: mine.length,
+                    activeCaseId: active?.case_id,
+                    snap,
+                });
                 setDone(build);
-            } catch (e: any) { setErr(e.message); }
+            } catch (e: any) {
+                setErr(e.message);
+            }
         })();
     }, []);
 
-    useEffect(() => { setAction(done ? { label: 'Proceed →', onClick: next } : null); }, [done]);
+    useEffect(() => {
+        setAction(done ? { label: 'Proceed →', onClick: next } : null);
+    }, [done]);
 
     const c = done?.counters || {};
     const skips = [
@@ -50,41 +70,55 @@ export default function S06Detection({ ctx, patch, next, setAction }: StepProps)
         <div className="max-w-2xl">
             <h1 className="text-3xl font-bold tracking-tight">Finding revenue at risk</h1>
             <p className="mt-3 text-[--muted]">
-                Every unpaid row becomes a <b className="text-[--ink]">case</b>. Each case runs the same
-                checks: how risky it is, why the payment failed, how much is likely to come back, what to
-                do about it, and whether we’re allowed to do that automatically.
+                Every unpaid row becomes a <b className="text-[--ink]">case</b>. Each case runs the
+                same checks: how risky it is, why the payment failed, how much is likely to come
+                back, what to do about it, and whether we’re allowed to do that automatically.
             </p>
 
             {!done && !err && (
                 <div className="mt-8 space-y-3">
                     <Spinner label="Generating recovery cases…" />
                     <p className="text-sm text-[--muted]">
-                        Each row runs the full pipeline — risk, diagnosis, recovery estimate, recommended
-                        action, policy check — on the server. A large file can take up to a minute.
+                        Each row runs the full pipeline — risk, diagnosis, recovery estimate,
+                        recommended action, policy check — on the server. A large file can take up
+                        to a minute.
                     </p>
                 </div>
             )}
 
-            {err && <div className="mt-6"><ErrorNote>{err}</ErrorNote></div>}
+            {err && (
+                <div className="mt-6">
+                    <ErrorNote>{err}</ErrorNote>
+                </div>
+            )}
 
             {done && (
                 <div className="mt-8 step-in">
-                    <BigStat label="Recovery cases created" value={done.cases_generated} tone="blue"
-                        sub={`from ${c.rows_seen ?? '—'} rows`} />
+                    <BigStat
+                        label="Recovery cases created"
+                        value={done.cases_generated}
+                        tone="blue"
+                        sub={`from ${c.rows_seen ?? '—'} rows`}
+                    />
                     <ul className="mt-6">
-                        <Row ok>{c.rows_accepted ?? done.cases_generated} rows became recovery cases</Row>
+                        <Row ok>
+                            {c.rows_accepted ?? done.cases_generated} rows became recovery cases
+                        </Row>
                         {(c.rows_skipped ?? 0) > 0 && (
                             <Row warn>
                                 {c.rows_skipped} rows skipped
-                                {skips.length ? ` — ${skips.join(', ')}` : ' — already paid or nothing to recover'}
+                                {skips.length
+                                    ? ` — ${skips.join(', ')}`
+                                    : ' — already paid or nothing to recover'}
                             </Row>
                         )}
                     </ul>
                     <div className="mt-8">
                         <Note>
-                            Each case ran the real pipeline: risk assessment → cause diagnosis → recovery estimate →
-                            recommended action → policy check → (act, if approved) → verify. The next screens walk
-                            through the highest-value case.
+                            Each case ran the real pipeline: risk assessment → cause diagnosis →
+                            recovery estimate → recommended action → policy check → (act, if
+                            approved) → verify. The next screens walk through the highest-value
+                            case.
                         </Note>
                     </div>
                 </div>

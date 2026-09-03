@@ -1,17 +1,21 @@
-from pydantic import BaseModel
 from decimal import Decimal
-from typing import List, Dict, Any, Optional
-from domain.models import RiskCategory, CaseState
+from typing import Any
+
+from pydantic import BaseModel
+
+from domain.models import CaseState, RiskCategory
+
 
 class IngestEventRequest(BaseModel):
     customer_id: str
     risk_category: RiskCategory
     external_system: str
     external_event_id: str
-    reference_id: Optional[str] = None
+    reference_id: str | None = None
     amount: Decimal
     currency: str = "INR"
-    raw_payload: Dict[str, Any]
+    raw_payload: dict[str, Any]
+
 
 class IngestEventResponse(BaseModel):
     case_id: str
@@ -19,24 +23,27 @@ class IngestEventResponse(BaseModel):
     status: str
     message: str
 
+
 class RiskAssessmentResponse(BaseModel):
     score: float
     risk_level: str
     detection_status: str
-    primary_risk_signals: Dict[str, Any]
-    contributing_evidence_references: List[str]
+    primary_risk_signals: dict[str, Any]
+    contributing_evidence_references: list[str]
     assessment_timestamp: str
     detector_version: str
+
 
 class DiagnosisResponse(BaseModel):
     diagnosis_id: str
     cause_category: str
     confidence: float
     status: str
-    supporting_signals: Dict[str, Any]
-    evidence_references: List[str]
+    supporting_signals: dict[str, Any]
+    evidence_references: list[str]
     diagnostic_method: str
     timestamp: str
+
 
 class RecoveryPredictionResponse(BaseModel):
     prediction_id: str
@@ -45,8 +52,9 @@ class RecoveryPredictionResponse(BaseModel):
     model_version: str
     feature_version: str
     prediction_timestamp: str
-    contributing_features: Dict[str, Any]
+    contributing_features: dict[str, Any]
     prediction_status: str
+
 
 class CandidateActionResponse(BaseModel):
     action_type: str
@@ -54,28 +62,32 @@ class CandidateActionResponse(BaseModel):
     expected_recoverable_value: Decimal
     rationale: str
 
+
 class ActionRecommendationResponse(BaseModel):
     recommendation_id: str
-    candidates: List[CandidateActionResponse]
-    top_candidate: Optional[CandidateActionResponse]
+    candidates: list[CandidateActionResponse]
+    top_candidate: CandidateActionResponse | None
     status: str
     rationale: str
     engine_version: str
     timestamp: str
+
 
 class RuleResultResponse(BaseModel):
     rule_name: str
     passed: bool
     details: str
 
+
 class PolicyDecisionResponse(BaseModel):
     decision_id: str
     status: str
     policy_version: str
-    rules_evaluated: List[RuleResultResponse]
-    failed_rules: List[RuleResultResponse]
+    rules_evaluated: list[RuleResultResponse]
+    failed_rules: list[RuleResultResponse]
     reason: str
     timestamp: str
+
 
 class ExecutionRecordResponse(BaseModel):
     execution_id: str
@@ -86,6 +98,7 @@ class ExecutionRecordResponse(BaseModel):
     adapter_used: str
     timestamp: str
     result_metadata: dict
+
 
 class RecoveryOutcomeResponse(BaseModel):
     outcome_id: str
@@ -98,8 +111,10 @@ class RecoveryOutcomeResponse(BaseModel):
     reconciliation_status: str
     timestamp: str
 
+
 class VerifyOutcomeRequest(BaseModel):
     external_reference: str
+
 
 class CaseResponse(BaseModel):
     case_id: str
@@ -109,23 +124,25 @@ class CaseResponse(BaseModel):
     currency: str
     current_state: CaseState
     event_count: int
-    risk_level: Optional[str] = None
-    cause_category: Optional[str] = None
-    recovery_probability: Optional[float] = None
-    expected_recoverable_value: Optional[Decimal] = None
-    recommended_action: Optional[str] = None
-    policy_status: Optional[str] = None
-    execution_status: Optional[str] = None
-    outcome_status: Optional[str] = None
-    actual_amount_recovered: Optional[Decimal] = None
+    risk_level: str | None = None
+    cause_category: str | None = None
+    recovery_probability: float | None = None
+    expected_recoverable_value: Decimal | None = None
+    recommended_action: str | None = None
+    policy_status: str | None = None
+    execution_status: str | None = None
+    outcome_status: str | None = None
+    actual_amount_recovered: Decimal | None = None
+
 
 class AuditResponse(BaseModel):
     id: str
-    case_id: Optional[str]
-    from_state: Optional[str]
-    to_state: Optional[str]
-    evidence: Dict[str, Any]
+    case_id: str | None
+    from_state: str | None
+    to_state: str | None
+    evidence: dict[str, Any]
     timestamp: str
+
 
 class DashboardMetricsResponse(BaseModel):
     total_revenue_at_risk: Decimal
@@ -137,58 +154,67 @@ class DashboardMetricsResponse(BaseModel):
     verified_recovery: Decimal
     recovery_gap: Decimal
 
+
 class HumanReviewRequest(BaseModel):
     decision: str
     note: str
 
+
 class BatchIngestRequest(BaseModel):
-    events: List[IngestEventRequest]
+    events: list[IngestEventRequest]
     auto_advance: bool = True
+
 
 class BatchIngestItemResult(BaseModel):
     external_event_id: str
-    case_id: Optional[str] = None
+    case_id: str | None = None
     is_new_case: bool = False
     status: str
-    current_state: Optional[str] = None
-    policy_status: Optional[str] = None
+    current_state: str | None = None
+    policy_status: str | None = None
     message: str = ""
+
 
 class BatchIngestResponse(BaseModel):
     submitted: int
     ingested: int
     duplicates: int
     failed: int
-    results: List[BatchIngestItemResult]
+    results: list[BatchIngestItemResult]
+
 
 class AdvanceCaseResponse(BaseModel):
     case_id: str
     current_state: str
-    risk_level: Optional[str] = None
-    cause_category: Optional[str] = None
-    recovery_probability: Optional[float] = None
-    prediction_status: Optional[str] = None
-    recommended_action: Optional[str] = None
-    expected_recoverable_value: Optional[Decimal] = None
-    policy_status: Optional[str] = None
-    policy_reason: Optional[str] = None
+    risk_level: str | None = None
+    cause_category: str | None = None
+    recovery_probability: float | None = None
+    prediction_status: str | None = None
+    recommended_action: str | None = None
+    expected_recoverable_value: Decimal | None = None
+    policy_status: str | None = None
+    policy_reason: str | None = None
+
 
 class DatasetPredictionRequest(BaseModel):
-    canonical_features: Dict[str, Any]
+    canonical_features: dict[str, Any]
+
 
 class DatasetPredictionResponse(BaseModel):
     probability: float
     status: str
-    model_metadata: Dict[str, Any]
+    model_metadata: dict[str, Any]
 
 
 class GenerateCasesRequest(BaseModel):
     max_cases: int = 100
 
+
 class GenerateCasesResponse(BaseModel):
     status: str
     cases_generated: int
-    case_ids: List[str]
-    counters: Optional[Dict[str, int]] = None
+    case_ids: list[str]
+    counters: dict[str, int] | None = None
+
 
 GenerateCasesResponse.model_rebuild()

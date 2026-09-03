@@ -1,5 +1,7 @@
-﻿import pytest
+import pytest
+
 from infrastructure.db import Base, engine
+
 
 @pytest.fixture(autouse=True)
 def setup_db():

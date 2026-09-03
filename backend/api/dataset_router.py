@@ -1,13 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
-from sqlalchemy.orm import Session
-from infrastructure.db import get_db
-from application.dataset_lab import DatasetLabService
-import shutil
-import os
 import json
+import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+from api.auth import verify_api_key
+from application.dataset_lab import DatasetLabService
 from infrastructure.dataset_orm import DatasetMetadataModel, DatasetStatus
+from infrastructure.db import get_db
+
+# Every state-changing / compute-triggering route in this router is guarded;
+# read-only GETs stay open for the dashboard.
+_AUTH = [Depends(verify_api_key)]
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -29,7 +35,7 @@ def _delete_models_for_dataset(dataset_id: str) -> int:
             continue
         if meta.get("dataset_id") != dataset_id:
             continue
-        model_id = meta.get("model_id") or f[:-len("_metadata.json")]
+        model_id = meta.get("model_id") or f[: -len("_metadata.json")]
         for name in (f, f"{model_id}_model.joblib"):
             p = os.path.join(_REGISTRY_DIR, name)
             try:
@@ -57,7 +63,7 @@ def _prune_old_models_for_dataset(dataset_id: str, keep_model_id: str = None) ->
             continue
         if meta.get("dataset_id") != dataset_id:
             continue
-        mid = meta.get("model_id") or f[:-len("_metadata.json")]
+        mid = meta.get("model_id") or f[: -len("_metadata.json")]
         if keep_model_id and mid == keep_model_id:
             continue
         for name in (f, f"{mid}_model.joblib"):
@@ -77,8 +83,9 @@ def _prune_stale_datasets(db: Session, keep: int) -> dict:
     are left intact (they are the history shown in Insights)."""
     keep = max(1, min(keep, 200))
     svc = DatasetLabService(db)
-    rows = sorted(svc.get_all_datasets(),
-                  key=lambda d: (d.upload_timestamp or datetime.min), reverse=True)
+    rows = sorted(
+        svc.get_all_datasets(), key=lambda d: d.upload_timestamp or datetime.min, reverse=True
+    )
     stale = rows[keep:]
     files = models = 0
     ids = []
@@ -110,7 +117,7 @@ def _prune_stale_datasets(db: Session, keep: int) -> dict:
                 continue
             did = meta.get("dataset_id")
             if did and did not in live_ids and did != "legacy_billing_v3":
-                mid = meta.get("model_id") or f[:-len("_metadata.json")]
+                mid = meta.get("model_id") or f[: -len("_metadata.json")]
                 for name in (f, f"{mid}_model.joblib"):
                     p = os.path.join(_REGISTRY_DIR, name)
                     try:
@@ -120,36 +127,45 @@ def _prune_stale_datasets(db: Session, keep: int) -> dict:
                     except OSError:
                         pass
 
-    return {"removed_datasets": len(ids), "removed_files": files,
-            "removed_model_files": models + orphans, "dataset_ids": ids}
+    return {
+        "removed_datasets": len(ids),
+        "removed_files": files,
+        "removed_model_files": models + orphans,
+        "dataset_ids": ids,
+    }
 
 
-@router.post("/prune")
+@router.post("/prune", dependencies=_AUTH)
 def prune_datasets(keep: int = 8, db: Session = Depends(get_db)):
     return {"status": "success", **_prune_stale_datasets(db, keep)}
 
-@router.post("/sync")
+
+@router.post("/sync", dependencies=_AUTH)
 def sync_local_datasets(db: Session = Depends(get_db)):
     service = DatasetLabService(db)
     imported = service.import_local_datasets()
     return {"status": "success", "imported_count": len(imported), "dataset_ids": imported}
 
-MAX_FILE_SIZE = 500 * 1024 * 1024 # 500 MB
 
-@router.post("/upload")
+from api.security import MAX_UPLOAD_BYTES as MAX_FILE_SIZE  # configurable via MAX_UPLOAD_BYTES env
+
+
+@router.post("/upload", dependencies=_AUTH)
 def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
     service = DatasetLabService(db)
-    
+
     # Security: validate extension
-    if not file.filename or '.' not in file.filename:
+    if not file.filename or "." not in file.filename:
         raise HTTPException(status_code=400, detail="Invalid filename.")
-        
-    ext = file.filename.split('.')[-1].lower()
-    if ext not in ['csv', 'parquet', 'xlsx', 'zip']:
-        raise HTTPException(status_code=400, detail="Unsupported file format. Must be CSV, Parquet, or XLSX.")
-        
+
+    ext = file.filename.split(".")[-1].lower()
+    if ext not in ["csv", "parquet", "xlsx", "zip"]:
+        raise HTTPException(
+            status_code=400, detail="Unsupported file format. Must be CSV, Parquet, or XLSX."
+        )
+
     # Sanitize filename strictly to prevent path traversal
-    safe_filename = "".join(c for c in file.filename if c.isalnum() or c in ['.', '_', '-'])
+    safe_filename = "".join(c for c in file.filename if c.isalnum() or c in [".", "_", "-"])
     if not safe_filename or safe_filename.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid safe filename.")
 
@@ -176,11 +192,14 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
                 buffer.write(chunk)
     finally:
         file.file.close()
-        
+
     if oversize:
         os.remove(file_path)
-        raise HTTPException(status_code=413, detail="File too large. Maximum size is 500MB.")
-        
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024 * 1024)} MiB.",
+        )
+
     size = os.path.getsize(file_path)
     new_ds = DatasetMetadataModel(
         dataset_id=ds_id,
@@ -188,8 +207,8 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
         filename=stored_filename,
         file_type=ext,
         file_size_bytes=size,
-        upload_timestamp=datetime.now(timezone.utc),
-        status=DatasetStatus.PENDING
+        upload_timestamp=datetime.now(UTC),
+        status=DatasetStatus.PENDING,
     )
     db.add(new_ds)
     db.commit()
@@ -199,8 +218,10 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
         pruned = _prune_stale_datasets(db, keep=int(os.getenv("DATASET_KEEP", "12")))
         if pruned["removed_datasets"]:
-            print(f"[upload] pruned {pruned['removed_datasets']} old dataset(s), "
-                  f"{pruned['removed_model_files']} model file(s)")
+            print(
+                f"[upload] pruned {pruned['removed_datasets']} old dataset(s), "
+                f"{pruned['removed_model_files']} model file(s)"
+            )
     except Exception as e:
         print(f"[upload] prune skipped: {e}")
 
@@ -209,14 +230,16 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
 
 def serialize_dataset(ds):
     d = ds.__dict__.copy()
-    d.pop('_sa_instance_state', None)
+    d.pop("_sa_instance_state", None)
     return d
+
 
 @router.get("")
 def list_datasets(db: Session = Depends(get_db)):
     service = DatasetLabService(db)
     datasets = service.get_all_datasets()
     return {"datasets": [serialize_dataset(ds) for ds in datasets]}
+
 
 @router.get("/{dataset_id}")
 def get_dataset(dataset_id: str, db: Session = Depends(get_db)):
@@ -227,8 +250,6 @@ def get_dataset(dataset_id: str, db: Session = Depends(get_db)):
     return serialize_dataset(ds)
 
 
-        
-
 @router.get("/{dataset_id}/preview")
 def preview_dataset(dataset_id: str, limit: int = 25, db: Session = Depends(get_db)):
     limit = min(max(1, limit), 100)
@@ -236,33 +257,37 @@ def preview_dataset(dataset_id: str, limit: int = 25, db: Session = Depends(get_
     ds = service.get_dataset(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-        
+
     path = os.path.join(service.dataset_dir, ds.filename)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Dataset file missing")
-        
+
     import pandas as pd
+
+    _pl = path.lower()
     try:
-        if path.endswith('.parquet'):
+        if _pl.endswith(".parquet"):
             import pyarrow.parquet as pq
+
             pf = pq.ParquetFile(path)
             df = pf.read_row_group(0).to_pandas().head(limit)
-        elif path.endswith('.xlsx'):
+        elif _pl.endswith((".xlsx", ".xls")):
             df = pd.read_excel(path, nrows=limit)
         else:
             df = pd.read_csv(path, nrows=limit)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to generate preview: {e}")
-        
-    schema_map = {s["original_column"]: s["canonical_field"] for s in (ds.recoverchain_signals or [])}
-    
+        raise HTTPException(status_code=400, detail=f"Failed to generate preview: {e}") from e
+
+    schema_map = {
+        s["original_column"]: s["canonical_field"] for s in (ds.recoverchain_signals or [])
+    }
+
     columns = []
     for col in df.columns:
-        columns.append({
-            "original_name": str(col),
-            "canonical_concept": schema_map.get(col, "UNKNOWN")
-        })
-        
+        columns.append(
+            {"original_name": str(col), "canonical_concept": schema_map.get(col, "UNKNOWN")}
+        )
+
     # Convert dataframe to JSON serializable records
     raw_records = df.to_dict(orient="records")
     records = []
@@ -275,34 +300,45 @@ def preview_dataset(dataset_id: str, limit: int = 25, db: Session = Depends(get_
         "dataset_id": dataset_id,
         "row_count_preview": len(records),
         "columns": columns,
-        "rows": records
+        "rows": records,
     }
 
-@router.post("/{dataset_id}/analyze")
+
+@router.post("/{dataset_id}/analyze", dependencies=_AUTH)
 def analyze_dataset(dataset_id: str, db: Session = Depends(get_db)):
     service = DatasetLabService(db)
     ds = service.analyze_dataset(dataset_id)
     return {"status": ds.status.value, "dataset_id": ds.dataset_id}
 
-@router.post("/{dataset_id}/ml-readiness")
+
+@router.post("/{dataset_id}/ml-readiness", dependencies=_AUTH)
 def evaluate_ml_readiness(dataset_id: str, db: Session = Depends(get_db)):
     service = DatasetLabService(db)
     ds = service.get_dataset(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-        
-    if ds.status not in [DatasetStatus.COMPLETED, DatasetStatus.READY_FOR_ANALYSIS, DatasetStatus.FAILED]:
+
+    if ds.status not in [
+        DatasetStatus.COMPLETED,
+        DatasetStatus.READY_FOR_ANALYSIS,
+        DatasetStatus.FAILED,
+    ]:
         raise HTTPException(status_code=400, detail="Dataset must have confirmed mappings first.")
-        
+
     ds.status = DatasetStatus.ANALYZING
     db.commit()
-    
+
     from application.ml_readiness import MLReadinessAnalyzer
+
     file_path = os.path.join(service.dataset_dir, ds.filename)
     try:
         spec = MLReadinessAnalyzer.analyze_readiness(ds, file_path)
         ds.training_suitability = spec
-        if spec.get("readiness_status") in ["ML_TRAINING_READY", "ML_TRAINING_READY_WITH_EXCLUSIONS", "ML_TRAINING_READY_WITH_WARNINGS"]:
+        if spec.get("readiness_status") in [
+            "ML_TRAINING_READY",
+            "ML_TRAINING_READY_WITH_EXCLUSIONS",
+            "ML_TRAINING_READY_WITH_WARNINGS",
+        ]:
             ds.status = DatasetStatus.ML_READY
         else:
             ds.status = DatasetStatus.FAILED
@@ -312,7 +348,9 @@ def evaluate_ml_readiness(dataset_id: str, db: Session = Depends(get_db)):
         ds.status = DatasetStatus.FAILED
         ds.error_message = str(e)
         db.commit()
-        raise HTTPException(status_code=400, detail=f"ML readiness evaluation failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"ML readiness evaluation failed: {e}") from e
+
+
 @router.get("/{dataset_id}/ml-readiness")
 def get_ml_readiness(dataset_id: str, db: Session = Depends(get_db)):
     service = DatasetLabService(db)
@@ -321,16 +359,27 @@ def get_ml_readiness(dataset_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Readiness spec not found")
     return ds.training_suitability
 
-def run_ml_training_task(dataset_id: str, spec: dict, data_path: str,
-                         min_roc_auc: float = None, min_test_rows: int = None):
+
+def run_ml_training_task(
+    dataset_id: str,
+    spec: dict,
+    data_path: str,
+    min_roc_auc: float = None,
+    min_test_rows: int = None,
+):
     from application.ml_training import MLTrainingEngine
-    from infrastructure.db import SessionLocal
     from infrastructure.dataset_orm import DatasetMetadataModel, DatasetStatus
+    from infrastructure.db import SessionLocal
 
     db = SessionLocal()
     try:
-        engine = MLTrainingEngine(spec, data_path, "ml/models/registry",
-                                  min_roc_auc=min_roc_auc, min_test_rows=min_test_rows)
+        engine = MLTrainingEngine(
+            spec,
+            data_path,
+            "ml/models/registry",
+            min_roc_auc=min_roc_auc,
+            min_test_rows=min_test_rows,
+        )
         meta = engine.train_and_evaluate()
 
         # Keep only the newest model per dataset — drop older / rejected ones so
@@ -340,13 +389,21 @@ def run_ml_training_task(dataset_id: str, spec: dict, data_path: str,
         except Exception:
             pass
 
-        ds = db.query(DatasetMetadataModel).filter(DatasetMetadataModel.dataset_id == dataset_id).first()
+        ds = (
+            db.query(DatasetMetadataModel)
+            .filter(DatasetMetadataModel.dataset_id == dataset_id)
+            .first()
+        )
         if ds:
             ds.status = DatasetStatus.TRAINED
             db.commit()
     except Exception as e:
         print(f"Training failed for {dataset_id}: {e}")
-        ds = db.query(DatasetMetadataModel).filter(DatasetMetadataModel.dataset_id == dataset_id).first()
+        ds = (
+            db.query(DatasetMetadataModel)
+            .filter(DatasetMetadataModel.dataset_id == dataset_id)
+            .first()
+        )
         if ds:
             ds.status = DatasetStatus.FAILED
             ds.error_message = str(e)
@@ -354,94 +411,119 @@ def run_ml_training_task(dataset_id: str, spec: dict, data_path: str,
     finally:
         db.close()
 
-@router.post("/{dataset_id}/train")
-def start_training(dataset_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+
+@router.post("/{dataset_id}/train", dependencies=_AUTH)
+def start_training(
+    dataset_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
+):
     service = DatasetLabService(db)
     ds = service.get_dataset(dataset_id)
     if not ds or not ds.training_suitability:
         raise HTTPException(status_code=400, detail="Dataset must have ML Readiness spec first.")
-        
+
     if ds.status not in [DatasetStatus.ML_READY, DatasetStatus.COMPLETED, DatasetStatus.FAILED]:
         raise HTTPException(status_code=400, detail="Dataset must be ML ready first.")
-        
+
     spec = ds.training_suitability
     status = spec.get("readiness_status", "")
-    
+
     # Quality Gate
-    if status not in ["ML_TRAINING_READY", "ML_TRAINING_READY_WITH_EXCLUSIONS", "ML_TRAINING_READY_WITH_WARNINGS"]:
-        raise HTTPException(status_code=400, detail=f"Dataset not ready for training. Status: {status}")
-        
+    if status not in [
+        "ML_TRAINING_READY",
+        "ML_TRAINING_READY_WITH_EXCLUSIONS",
+        "ML_TRAINING_READY_WITH_WARNINGS",
+    ]:
+        raise HTTPException(
+            status_code=400, detail=f"Dataset not ready for training. Status: {status}"
+        )
+
     ds.status = DatasetStatus.TRAINING
     db.commit()
-    
+
     file_path = os.path.join(service.dataset_dir, ds.filename)
     background_tasks.add_task(run_ml_training_task, dataset_id, spec, file_path)
     return {"status": "Training initiated"}
+
 
 @router.get("/{dataset_id}/models")
 def list_trained_models(dataset_id: str):
     registry_dir = "ml/models/registry"
     if not os.path.exists(registry_dir):
         return []
-        
+
     models = []
     for f in os.listdir(registry_dir):
         if f.endswith("_metadata.json"):
             try:
-                with open(os.path.join(registry_dir, f), "r") as meta_f:
+                with open(os.path.join(registry_dir, f)) as meta_f:
                     import json
+
                     meta = json.load(meta_f)
                     if meta.get("dataset_id") == dataset_id:
                         models.append(meta)
             except Exception:
                 continue
-    
+
     # Sort by created_at descending
     models.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     return models
+
+
 @router.get("/{dataset_id}/workflow-status")
 def get_workflow_status(dataset_id: str, db: Session = Depends(get_db)):
     service = DatasetLabService(db)
     ds = service.get_dataset(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-        
+
     detected_fields = ds.recoverchain_signals or []
-    
-    # Required fields derived from minimum information contract
+
+    # Minimum-information contract: each slot below is satisfied by any of its aliases.
     from application.dataset_intelligence import CanonicalField
-    required_fields = [
-        CanonicalField.ENTITY_ID.value,  # entity/account/customer identifier
-        CanonicalField.AMOUNT.value,     # amount/balance
-        CanonicalField.TIMESTAMP.value,  # timestamp/date
-        CanonicalField.TARGET.value      # outcome/target (or OUTCOME)
-    ]
-    
+
     detected_canonical = [f["canonical_field"] for f in detected_fields if f.get("canonical_field")]
-    
+
     # Check what is missing (handle aliases in contract)
     missing_required_fields = []
-    has_entity = any(f in detected_canonical for f in [CanonicalField.ENTITY_ID.value, CanonicalField.ACCOUNT_ID.value, CanonicalField.CUSTOMER_ID.value])
-    if not has_entity: missing_required_fields.append("ENTITY_ID/ACCOUNT_ID")
-        
-    has_amount = any(f in detected_canonical for f in [CanonicalField.AMOUNT.value, CanonicalField.BALANCE.value])
-    if not has_amount: missing_required_fields.append("AMOUNT/BALANCE")
-        
-    has_time = any(f in detected_canonical for f in [CanonicalField.TIMESTAMP.value, CanonicalField.SETTLEMENT_DATE.value])
-    if not has_time: missing_required_fields.append("TIMESTAMP/DATE")
-        
-    has_target = any(f in detected_canonical for f in [CanonicalField.TARGET.value, CanonicalField.OUTCOME.value])
-    if not has_target: missing_required_fields.append("TARGET/OUTCOME")
-        
+    has_entity = any(
+        f in detected_canonical
+        for f in [
+            CanonicalField.ENTITY_ID.value,
+            CanonicalField.ACCOUNT_ID.value,
+            CanonicalField.CUSTOMER_ID.value,
+        ]
+    )
+    if not has_entity:
+        missing_required_fields.append("ENTITY_ID/ACCOUNT_ID")
+
+    has_amount = any(
+        f in detected_canonical for f in [CanonicalField.AMOUNT.value, CanonicalField.BALANCE.value]
+    )
+    if not has_amount:
+        missing_required_fields.append("AMOUNT/BALANCE")
+
+    has_time = any(
+        f in detected_canonical
+        for f in [CanonicalField.TIMESTAMP.value, CanonicalField.SETTLEMENT_DATE.value]
+    )
+    if not has_time:
+        missing_required_fields.append("TIMESTAMP/DATE")
+
+    has_target = any(
+        f in detected_canonical for f in [CanonicalField.TARGET.value, CanonicalField.OUTCOME.value]
+    )
+    if not has_target:
+        missing_required_fields.append("TARGET/OUTCOME")
+
     quality_stats = ds.data_quality_report or {}
     leakage_warnings = ds.leakage_detection or []
-    
+
     suitability = ds.training_suitability or {}
     target_classification = suitability.get("prediction_problem", "unknown")
     ml_readiness = suitability.get("readiness_status", "PENDING" if not suitability else "UNKNOWN")
     if not suitability and ds.status == DatasetStatus.MAPPING_REVIEW:
         ml_readiness = "AWAITING_MAPPING_REVIEW"
-        
+
     return {
         "dataset_id": ds.dataset_id,
         "filename": ds.filename,
@@ -449,146 +531,200 @@ def get_workflow_status(dataset_id: str, db: Session = Depends(get_db)):
         "row_count": ds.row_count,
         "column_count": ds.column_count,
         "detected_canonical_fields": detected_fields,
-        "required_fields": ["ENTITY_ID/ACCOUNT_ID", "AMOUNT/BALANCE", "TIMESTAMP/DATE", "TARGET/OUTCOME"],
+        "required_fields": [
+            "ENTITY_ID/ACCOUNT_ID",
+            "AMOUNT/BALANCE",
+            "TIMESTAMP/DATE",
+            "TARGET/OUTCOME",
+        ],
         "missing_required_fields": missing_required_fields,
         "quality_statistics": quality_stats,
         "leakage_warnings": leakage_warnings,
         "target_classification": target_classification,
-        "ml_readiness_status": ml_readiness
+        "ml_readiness_status": ml_readiness,
     }
+
+
 from pydantic import BaseModel
-from typing import List, Optional
+
 
 class MappingOverride(BaseModel):
     original_column: str
     canonical_field: str
-    action: str # "confirm", "override", "unused"
+    action: str  # "confirm", "override", "unused"
+
 
 class MappingConfirmationRequest(BaseModel):
-    mappings: List[MappingOverride]
+    mappings: list[MappingOverride]
 
-@router.post("/{dataset_id}/mapping")
-def confirm_dataset_mapping(dataset_id: str, req: MappingConfirmationRequest, db: Session = Depends(get_db)):
+
+@router.post("/{dataset_id}/mapping", dependencies=_AUTH)
+def confirm_dataset_mapping(
+    dataset_id: str, req: MappingConfirmationRequest, db: Session = Depends(get_db)
+):
     service = DatasetLabService(db)
     ds = service.get_dataset(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-        
+
     profile = ds.columns_profile or []
     valid_columns = {c["column_name"] for c in profile}
-    
+
     # Validation 1: Nonexistent columns
     for m in req.mappings:
         if m.original_column not in valid_columns:
-            raise HTTPException(status_code=400, detail=f"Column {m.original_column} does not exist.")
-            
+            raise HTTPException(
+                status_code=400, detail=f"Column {m.original_column} does not exist."
+            )
+
     # Compile final mappings
     final_mappings = []
     canonical_used = set()
-    
+
     leakage = ds.leakage_detection or []
     leaked_cols = {l["column"] for l in leakage}
-    
+
     from application.dataset_intelligence import CanonicalField
-    
+
     for m in req.mappings:
         if m.action == "unused" or m.canonical_field == CanonicalField.UNKNOWN.value:
-            final_mappings.append({
-                "original_column": m.original_column,
-                "canonical_field": CanonicalField.UNKNOWN.value,
-                "confidence": "USER_CONFIRMED",
-                "mapping_reason": "User explicitly marked as unused or unknown."
-            })
+            final_mappings.append(
+                {
+                    "original_column": m.original_column,
+                    "canonical_field": CanonicalField.UNKNOWN.value,
+                    "confidence": "USER_CONFIRMED",
+                    "mapping_reason": "User explicitly marked as unused or unknown.",
+                }
+            )
             continue
-            
+
         # Validation 2: Duplicate assignments for single-use fields
-        single_use = [CanonicalField.TARGET.value, CanonicalField.OUTCOME.value, CanonicalField.AMOUNT.value]
+        single_use = [
+            CanonicalField.TARGET.value,
+            CanonicalField.OUTCOME.value,
+            CanonicalField.AMOUNT.value,
+        ]
         if m.canonical_field in single_use:
             if m.canonical_field in canonical_used:
-                raise HTTPException(status_code=400, detail=f"Duplicate assignment for {m.canonical_field} prohibited.")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Duplicate assignment for {m.canonical_field} prohibited.",
+                )
             canonical_used.add(m.canonical_field)
-            
+
         # Validation 3: Target mapped to post-outcome
         if m.canonical_field in [CanonicalField.TARGET.value, CanonicalField.OUTCOME.value]:
             if m.original_column in leaked_cols:
-                raise HTTPException(status_code=400, detail=f"Cannot map target to leaked/post-outcome field: {m.original_column}")
-                
-        final_mappings.append({
-            "original_column": m.original_column,
-            "canonical_field": m.canonical_field,
-            "confidence": "USER_CONFIRMED",
-            "mapping_reason": "User confirmed override."
-        })
-        
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot map target to leaked/post-outcome field: {m.original_column}",
+                )
+
+        final_mappings.append(
+            {
+                "original_column": m.original_column,
+                "canonical_field": m.canonical_field,
+                "confidence": "USER_CONFIRMED",
+                "mapping_reason": "User confirmed override.",
+            }
+        )
+
     # Validation 4: LOW confidence rejection / unsafe mappings
     # Evaluate against DatasetValidator
     from application.dataset_intelligence import DatasetValidator
+
     validation_res = DatasetValidator.classify_dataset(final_mappings, leaked_columns=leaked_cols)
     if validation_res["classification"] in ["INSUFFICIENT", "PARTIALLY_USABLE"]:
         raise HTTPException(status_code=400, detail=f"Unsafe mappings: {validation_res['reason']}")
-        
+
     # Validation 5: LOW confidence critical fields must be explicitly overridden?
     # If the user provides overrides, they become USER_CONFIRMED, so they are not LOW anymore.
     # We just need to make sure minimum contract is satisfied.
-    
+
     ds.recoverchain_signals = final_mappings
     ds.status = DatasetStatus.READY_FOR_ANALYSIS
     db.commit()
-    
-    return {"status": "SUCCESS", "message": "Mapping confirmed.", "classification": validation_res["classification"]}
 
-from api.schemas import DatasetPredictionRequest, DatasetPredictionResponse, GenerateCasesRequest, GenerateCasesResponse
+    return {
+        "status": "SUCCESS",
+        "message": "Mapping confirmed.",
+        "classification": validation_res["classification"],
+    }
+
+
+from api.schemas import (
+    DatasetPredictionRequest,
+    DatasetPredictionResponse,
+    GenerateCasesRequest,
+    GenerateCasesResponse,
+)
 from application.recovery_predictor_ml import MLPaymentFailurePredictor
 
-@router.post("/{dataset_id}/predict", response_model=DatasetPredictionResponse)
+
+@router.post("/{dataset_id}/predict", response_model=DatasetPredictionResponse, dependencies=_AUTH)
 def shadow_predict(dataset_id: str, request: DatasetPredictionRequest):
     predictor = MLPaymentFailurePredictor(dataset_id=dataset_id, registry_dir="ml/models/registry")
     if not predictor.model:
         raise HTTPException(status_code=404, detail="No valid model found for this dataset")
-        
+
     try:
         res = predictor.predict_failure_risk(request.canonical_features)
         return DatasetPredictionResponse(
             probability=res.get("probability", 0.0),
             status=res.get("status", "SUCCESS"),
-            model_metadata=res.get("model_metadata", {})
+            model_metadata=res.get("model_metadata", {}),
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-from pydantic import BaseModel
-from typing import List, Optional
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
-@router.post("/{dataset_id}/generate-cases", response_model=GenerateCasesResponse)
-def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
-                                background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+
+from pydantic import BaseModel
+
+
+@router.post(
+    "/{dataset_id}/generate-cases", response_model=GenerateCasesResponse, dependencies=_AUTH
+)
+def generate_cases_from_dataset(
+    dataset_id: str,
+    req: GenerateCasesRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     service = DatasetLabService(db)
     ds = service.get_dataset(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-        
-    if not ds.training_suitability or ds.training_suitability.get("readiness_status") not in ["ML_TRAINING_READY", "ML_TRAINING_READY_WITH_EXCLUSIONS", "ML_TRAINING_READY_WITH_WARNINGS"]:
+
+    if not ds.training_suitability or ds.training_suitability.get("readiness_status") not in [
+        "ML_TRAINING_READY",
+        "ML_TRAINING_READY_WITH_EXCLUSIONS",
+        "ML_TRAINING_READY_WITH_WARNINGS",
+    ]:
         raise HTTPException(status_code=400, detail="Dataset must be ML ready to generate cases")
-        
+
     file_path = os.path.join(service.dataset_dir, ds.filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Dataset file missing")
-        
+
     bounded_max_cases = min(max(1, req.max_cases), 500)
     import pandas as pd
+
+    _fpl = file_path.lower()
     try:
-        if file_path.endswith('.parquet'):
+        if _fpl.endswith(".parquet"):
             import pyarrow.parquet as pq
+
             pf = pq.ParquetFile(file_path)
             df = pf.read_row_group(0).to_pandas()
             if len(df) > bounded_max_cases:
                 df = df.head(bounded_max_cases)
-        elif file_path.endswith('.xlsx'):
+        elif _fpl.endswith((".xlsx", ".xls")):
             df = pd.read_excel(file_path, nrows=bounded_max_cases)
         else:
             df = pd.read_csv(file_path, nrows=bounded_max_cases)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read dataset: {str(e)}")
-        
+        raise HTTPException(status_code=400, detail=f"Failed to read dataset: {e}") from e
+
     # Train / refresh the per-dataset shadow model on a BACKGROUND task so it does
     # not block this response (training two calibrated candidates took ~2 s of the
     # request). This run's cases are scored by whatever model is on disk now — the
@@ -601,8 +737,9 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
         train_spec["dataset_id"] = dataset_id
         # Honest bar: a model that does not clear 0.55 ROC-AUC is left
         # REJECTED_LOW_QUALITY and the pipeline keeps using the baseline.
-        background_tasks.add_task(run_ml_training_task, dataset_id, train_spec,
-                                  file_path, 0.55, 200)
+        background_tasks.add_task(
+            run_ml_training_task, dataset_id, train_spec, file_path, 0.55, 200
+        )
 
     # Extract mapping
     mappings = ds.recoverchain_signals or []
@@ -611,18 +748,35 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
         if m["canonical_field"] != "UNKNOWN":
             canonical_to_original[m["canonical_field"]] = m["original_column"]
 
-    from domain.models import RevenueEvent, RiskCategory, Money
     from decimal import Decimal
+
+    from domain.models import Money, RevenueEvent, RiskCategory
 
     # M1b — pick a per-row risk category from an event-type/category column so a
     # subscription / checkout / invoice file drives the matching pipeline branch
     # instead of every row being treated as a bare failed payment.
-    _CAT_TOKENS = ("event_type", "event_category", "revenue_stream", "risk_category",
-                   "category", "event_kind", "scenario", "channel")
-    cat_col = next((c for c in df.columns
-                    if any(t in str(c).lower() for t in _CAT_TOKENS)
-                    and c != canonical_to_original.get("PAYMENT_METHOD")), None)
-    _cur_col = next((c for c in df.columns if str(c).lower() in ("currency", "ccy", "currency_code")), None)
+    _CAT_TOKENS = (
+        "event_type",
+        "event_category",
+        "revenue_stream",
+        "risk_category",
+        "category",
+        "event_kind",
+        "scenario",
+        "channel",
+    )
+    cat_col = next(
+        (
+            c
+            for c in df.columns
+            if any(t in str(c).lower() for t in _CAT_TOKENS)
+            and c != canonical_to_original.get("PAYMENT_METHOD")
+        ),
+        None,
+    )
+    _cur_col = next(
+        (c for c in df.columns if str(c).lower() in ("currency", "ccy", "currency_code")), None
+    )
     _default_ccy = os.getenv("DEFAULT_CURRENCY", "INR")
 
     def _risk_for(rd):
@@ -630,9 +784,14 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
             v = str(rd.get(cat_col, "")).strip().lower()
             if any(k in v for k in ("checkout", "cart", "abandon", "basket")):
                 return RiskCategory.CHECKOUT_ABANDONMENT
-            if any(k in v for k in ("subscription", "renewal", "recurring", "mrr", "dunning", "membership")):
+            if any(
+                k in v
+                for k in ("subscription", "renewal", "recurring", "mrr", "dunning", "membership")
+            ):
                 return RiskCategory.FAILED_SUBSCRIPTION
-            if any(k in v for k in ("invoice", "receivable", "overdue", "ar_", "accounts_receivable")):
+            if any(
+                k in v for k in ("invoice", "receivable", "overdue", "ar_", "accounts_receivable")
+            ):
                 return RiskCategory.OVERDUE_INVOICE
             if any(k in v for k in ("promise", "ptp", "commitment", "arrangement")):
                 return RiskCategory.BROKEN_PROMISE
@@ -650,20 +809,22 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
             return v.isoformat()
         if isinstance(v, Decimal):
             return float(v)
-        if hasattr(v, "item"):          # numpy scalar
+        if hasattr(v, "item"):  # numpy scalar
             try:
                 return v.item()
             except Exception:
                 return str(v)
         return v
-    from infrastructure.repositories import SqlAlchemyCaseRepository, SqlAlchemyAuditRecorder
+
+    import uuid
+    from datetime import datetime
+
+    from application.agents import AgentOrchestrator
     from application.case_engine import CaseEngine, DuplicateEventException
     from application.case_pipeline import CasePipelineService
     from application.recovery_predictor_ml import MLPaymentFailurePredictor
-    from application.agents import AgentOrchestrator
     from application.verification_engine import VerificationEngine
-    import uuid
-    from datetime import datetime
+    from infrastructure.repositories import SqlAlchemyAuditRecorder, SqlAlchemyCaseRepository
 
     case_repo = SqlAlchemyCaseRepository(db)
     audit_repo = SqlAlchemyAuditRecorder(db)
@@ -683,7 +844,7 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
     shared_predictor = MLPaymentFailurePredictor(dataset_id=dataset_id)
 
     generated_ids = []
-    
+
     counters = {
         "rows_seen": len(df),
         "rows_accepted": 0,
@@ -692,13 +853,13 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
         "invalid_entity": 0,
         "invalid_timestamp": 0,
         "invalid_target": 0,
-        "ambiguous_target": 0
+        "ambiguous_target": 0,
     }
-    
+
     for idx, row in df.iterrows():
         # Map canonical fields
         row_dict = row.to_dict()
-        
+
         # 1. Amount validation
         amount_col = canonical_to_original.get("AMOUNT") or canonical_to_original.get("BALANCE")
         if not amount_col:
@@ -720,7 +881,7 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
             counters["rows_skipped"] += 1
             counters["invalid_amount"] += 1
             continue
-            
+
         # 2. Target/Outcome validation
         target_col = canonical_to_original.get("TARGET") or canonical_to_original.get("OUTCOME")
         if not target_col:
@@ -732,23 +893,37 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
             counters["rows_skipped"] += 1
             counters["invalid_target"] += 1
             continue
-            
+
         val_str = str(val).strip().lower()
         if val_str in ["0", "false", "no", "success", "paid", "settled", "completed"]:
             is_failed = False
-        elif val_str in ["1", "true", "yes", "failed", "unpaid", "returned", "declined", "error", "insufficient_funds"]:
+        elif val_str in [
+            "1",
+            "true",
+            "yes",
+            "failed",
+            "unpaid",
+            "returned",
+            "declined",
+            "error",
+            "insufficient_funds",
+        ]:
             is_failed = True
         else:
             counters["rows_skipped"] += 1
             counters["ambiguous_target"] += 1
             continue
-            
+
         if not is_failed:
             counters["rows_skipped"] += 1
             continue
-            
+
         # 3. Entity identifier validation
-        entity_col = canonical_to_original.get("ENTITY_ID") or canonical_to_original.get("CUSTOMER_ID") or canonical_to_original.get("ACCOUNT_ID")
+        entity_col = (
+            canonical_to_original.get("ENTITY_ID")
+            or canonical_to_original.get("CUSTOMER_ID")
+            or canonical_to_original.get("ACCOUNT_ID")
+        )
         if not entity_col:
             counters["rows_skipped"] += 1
             counters["invalid_entity"] += 1
@@ -759,7 +934,7 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
             counters["invalid_entity"] += 1
             continue
         customer_id = str(customer_id).strip()
-        
+
         # 4. Timestamp validation
         time_col = canonical_to_original.get("TIMESTAMP")
         if not time_col:
@@ -773,15 +948,15 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
             continue
         try:
             from dateutil.parser import parse
+
             ts = parse(str(ts_val))
-            from datetime import timezone
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-        except:
+                ts = ts.replace(tzinfo=UTC)
+        except Exception:
             counters["rows_skipped"] += 1
             counters["invalid_timestamp"] += 1
             continue
-            
+
         tx_col = canonical_to_original.get("TRANSACTION_ID")
         tx_id = str(row_dict.get(tx_col, f"tx_{idx}")) if tx_col else f"tx_{idx}"
 
@@ -793,13 +968,22 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
         if "failure_code" not in payload:
             for k, v in row_dict.items():
                 kl = str(k).lower()
-                if v is not None and str(v).strip() and any(
-                    tok in kl for tok in ("reason", "cause", "failure_code", "decline", "error_code")
+                if (
+                    v is not None
+                    and str(v).strip()
+                    and any(
+                        tok in kl
+                        for tok in ("reason", "cause", "failure_code", "decline", "error_code")
+                    )
                 ):
                     payload["failure_code"] = str(v).strip().lower()
                     break
 
-        ccy = str(row_dict.get(_cur_col)).strip().upper() if _cur_col and not pd.isna(row_dict.get(_cur_col)) else _default_ccy
+        ccy = (
+            str(row_dict.get(_cur_col)).strip().upper()
+            if _cur_col and not pd.isna(row_dict.get(_cur_col))
+            else _default_ccy
+        )
 
         event = RevenueEvent(
             event_id=f"evt_{uuid.uuid4().hex[:8]}",
@@ -810,9 +994,9 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
             reference_id=tx_id,
             amount=Money(amount=amt, currency=ccy),
             timestamp=ts,
-            raw_payload=payload
+            raw_payload=payload,
         )
-        
+
         try:
             case, is_new = case_engine.ingest_normalized_event(event)
         except DuplicateEventException:
@@ -825,14 +1009,22 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
         case = pipeline.advance(case, dataset_id=dataset_id, predictor=shared_predictor)
 
         from domain.models import PolicyDecisionStatus
-        if case.policy_decision and case.policy_decision.status == PolicyDecisionStatus.PERMITTED \
-                and case.recommendation and case.recommendation.top_candidate:
+
+        if (
+            case.policy_decision
+            and case.policy_decision.status == PolicyDecisionStatus.PERMITTED
+            and case.recommendation
+            and case.recommendation.top_candidate
+        ):
             case.execution_record = agent.execute(
-                case, case.recommendation.top_candidate.action_type, repo=case_repo)
+                case, case.recommendation.top_candidate.action_type, repo=case_repo
+            )
             case_repo.save(case)
 
         if case.execution_record and case.execution_record.status.value == "COMPLETED_SIMULATED":
-            case.outcome = v_engine.reconcile(case, external_reference=case.execution_record.execution_id)
+            case.outcome = v_engine.reconcile(
+                case, external_reference=case.execution_record.execution_id
+            )
             case.actual_amount_recovered = case.outcome.actual_amount_recovered
             case.current_state = v_engine.resolve_case_state(case.outcome.status)
             case_repo.save(case)
@@ -849,5 +1041,5 @@ def generate_cases_from_dataset(dataset_id: str, req: GenerateCasesRequest,
         "status": "SUCCESS",
         "cases_generated": len(generated_ids),
         "case_ids": generated_ids,
-        "counters": counters
+        "counters": counters,
     }

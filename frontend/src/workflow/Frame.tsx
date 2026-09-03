@@ -3,8 +3,17 @@ import gsap from 'gsap';
 import { STEPS, Action } from './types';
 import { Button, Spinner } from '../ui';
 
-export default function Frame({ idx, action, motion, children }:
-    { idx: number; action: Action | null; motion: boolean; children: React.ReactNode }) {
+export default function Frame({
+    idx,
+    action,
+    motion,
+    children,
+}: {
+    idx: number;
+    action: Action | null;
+    motion: boolean;
+    children: React.ReactNode;
+}) {
     const step = STEPS[idx];
     const [busy, setBusy] = useState('');
     const body = useRef<HTMLDivElement>(null);
@@ -15,12 +24,16 @@ export default function Frame({ idx, action, motion, children }:
         const el = body.current;
         const ctx = gsap.context(() => {
             // Kept short and blur-free: a slow fade on every step reads as "loading".
-            gsap.fromTo(el,
+            gsap.fromTo(
+                el,
                 { opacity: 0, y: 10 },
-                { opacity: 1, y: 0, duration: 0.26, ease: 'power2.out' });
-            gsap.fromTo(el.querySelectorAll('[data-stagger]'),
+                { opacity: 1, y: 0, duration: 0.26, ease: 'power2.out' },
+            );
+            gsap.fromTo(
+                el.querySelectorAll('[data-stagger]'),
                 { autoAlpha: 0, y: 8 },
-                { autoAlpha: 1, y: 0, duration: 0.3, ease: 'power2.out', stagger: 0.04 });
+                { autoAlpha: 1, y: 0, duration: 0.3, ease: 'power2.out', stagger: 0.04 },
+            );
         }, el);
         return () => ctx.revert();
     }, [idx, motion]);
@@ -28,7 +41,11 @@ export default function Frame({ idx, action, motion, children }:
     async function run(fn?: () => void | Promise<void>, label?: string) {
         if (!fn) return;
         setBusy(label || 'Working…');
-        try { await fn(); } finally { setBusy(''); }
+        try {
+            await fn();
+        } finally {
+            setBusy('');
+        }
     }
 
     return (
@@ -50,7 +67,10 @@ export default function Frame({ idx, action, motion, children }:
                             </Button>
                         )}
                         {action && (
-                            <Button disabled={action.disabled || !!busy} onClick={() => run(action.onClick, action.busy)}>
+                            <Button
+                                disabled={action.disabled || !!busy}
+                                onClick={() => run(action.onClick, action.busy)}
+                            >
                                 {action.label}
                             </Button>
                         )}

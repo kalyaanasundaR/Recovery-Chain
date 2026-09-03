@@ -1,8 +1,8 @@
-import os
 import uuid
-import pytest
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import pytest
 
 
 @pytest.mark.fast
@@ -19,12 +19,14 @@ def test_low_quality_model_is_rejected_and_not_served(tmp_path, monkeypatch):
     # Pure noise -> target is independent of features -> ROC-AUC ~ 0.5.
     rng = np.random.default_rng(0)
     n = 120
-    df = pd.DataFrame({
-        "f1": rng.normal(size=n),
-        "f2": rng.normal(size=n),
-        "target": rng.integers(0, 2, size=n),
-        "split": (["train"] * 80) + (["validation"] * 20) + (["test"] * 20),
-    })
+    df = pd.DataFrame(
+        {
+            "f1": rng.normal(size=n),
+            "f2": rng.normal(size=n),
+            "target": rng.integers(0, 2, size=n),
+            "split": (["train"] * 80) + (["validation"] * 20) + (["test"] * 20),
+        }
+    )
     data_path = tmp_path / "noise.csv"
     df.to_csv(data_path, index=False)
 

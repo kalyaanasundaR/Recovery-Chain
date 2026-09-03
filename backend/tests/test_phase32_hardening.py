@@ -1,20 +1,23 @@
-﻿import pytest
+import uuid
+from datetime import UTC, datetime
+
+import pytest
 from fastapi.testclient import TestClient
+
 from api.main import app
+from application.recovery_predictor_ml import MLPaymentFailurePredictor
 from infrastructure.dataset_orm import DatasetMetadataModel, DatasetStatus
 from infrastructure.db import SessionLocal
-from application.recovery_predictor_ml import MLPaymentFailurePredictor
-import os
-import uuid
-from datetime import datetime, timezone
 
 client = TestClient(app)
+
 
 @pytest.mark.fast
 def test_preview_nonexistent_dataset():
     res = client.get("/datasets/ds_nonexistent_12345/preview")
     assert res.status_code == 404
     assert "Dataset not found" in res.json().get("detail", "")
+
 
 @pytest.mark.fast
 def test_ml_readiness_unconfirmed_dataset():
@@ -27,7 +30,7 @@ def test_ml_readiness_unconfirmed_dataset():
         file_type="csv",
         file_size_bytes=100,
         status=DatasetStatus.PENDING,
-        upload_timestamp=datetime.now(timezone.utc)
+        upload_timestamp=datetime.now(UTC),
     )
     db.add(ds)
     db.commit()
@@ -36,6 +39,7 @@ def test_ml_readiness_unconfirmed_dataset():
     res = client.post(f"/datasets/{ds_id}/ml-readiness")
     assert res.status_code == 400
     assert "Dataset must have confirmed mappings first" in res.json().get("detail", "")
+
 
 @pytest.mark.fast
 def test_training_retry_allowed_on_failed_dataset():
@@ -52,9 +56,9 @@ def test_training_retry_allowed_on_failed_dataset():
             "readiness_status": "ML_TRAINING_READY",
             "prediction_problem": "payment-failure-risk",
             "feature_columns": ["amount"],
-            "target_column": "failed"
+            "target_column": "failed",
         },
-        upload_timestamp=datetime.now(timezone.utc)
+        upload_timestamp=datetime.now(UTC),
     )
     db.add(ds)
     db.commit()
@@ -63,6 +67,7 @@ def test_training_retry_allowed_on_failed_dataset():
     res = client.post(f"/datasets/{ds_id}/train")
     assert res.status_code == 200
     assert res.json().get("status") == "Training initiated"
+
 
 @pytest.mark.fast
 def test_predictor_path_traversal_rejection():
@@ -75,6 +80,7 @@ def test_predictor_path_traversal_rejection():
     assert pred_null.model is None
     assert pred_null.predict_failure_risk({"amount": 100})["status"] == "NO_MODEL"
 
+
 @pytest.mark.fast
 def test_generate_cases_bounded_max_cases():
     db = SessionLocal()
@@ -86,10 +92,8 @@ def test_generate_cases_bounded_max_cases():
         file_type="csv",
         file_size_bytes=100,
         status=DatasetStatus.ML_READY,
-        training_suitability={
-            "readiness_status": "ML_TRAINING_READY"
-        },
-        upload_timestamp=datetime.now(timezone.utc)
+        training_suitability={"readiness_status": "ML_TRAINING_READY"},
+        upload_timestamp=datetime.now(UTC),
     )
     db.add(ds)
     db.commit()

@@ -30,9 +30,11 @@ python run.py                                  # backend :8000 + frontend :5173 
 
 # backend
 cd backend && PYTHONPATH=. uvicorn api.main:app --reload
-cd backend && PYTHONPATH=. pytest              # 204 tests, isolated throwaway DB
+cd backend && PYTHONPATH=. pytest              # 216 tests, isolated throwaway DB
 cd backend && PYTHONPATH=. pytest -m fast      # unit only
 cd backend && PYTHONPATH=. pytest tests/test_policy.py::test_A_permitted_action -q
+cd backend && ruff check . && ruff format --check .    # lint + format (pyproject.toml)
+cd backend && pip install -r requirements-dev.txt      # ruff / mypy / pytest-cov / pip-audit
 
 # schema
 cd backend && PYTHONPATH=. alembic upgrade head        # required for Postgres
@@ -44,6 +46,7 @@ cd backend && PYTHONPATH=. python run_phase19_training.py
 # frontend
 cd frontend && npm install && npm run dev
 cd frontend && npm run build                   # tsc + vite
+cd frontend && npm run lint && npm run format:check
 
 # containers
 docker-compose up --build                      # postgres + redis + api + web
@@ -51,19 +54,24 @@ docker-compose up --build                      # postgres + redis + api + web
 
 `tests/conftest.py` forces an isolated SQLite file (`RECOVERCHAIN_TEST_DATABASE_URL`
 to override), creates/drops the schema per session, bypasses the API-key
-dependency, and disables the ML quality gate (`ML_MIN_ROC_AUC=0`).
+dependency, disables the ML quality gate (`ML_MIN_ROC_AUC=0`), and disables the
+rate limiter (`RATE_LIMIT_ENABLED=0`; `test_auth.py` re-enables it explicitly).
 
 ## Config / env
 
 | Var | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://...` | `sqlite:///./x.db` for local |
-| `API_KEY` | `test-api-key` | `X-API-Key` header on mutating routes |
-| `CORS_ORIGINS` | `*` | comma-separated allowlist |
+| `API_KEY` | `test-api-key` | `X-API-Key` header on mutating routes; dev default triggers a startup warning |
+| `CORS_ORIGINS` | `*` | comma-separated allowlist; `*` disables credentialed CORS |
+| `ALLOW_INSECURE_DEFAULTS` | — | `1` silences the insecure-default startup warnings |
+| `RATE_LIMIT_ENABLED` / `RATE_LIMIT_RPM` | `1` / `120` | per-key/-IP sliding window; conftest sets `0` |
+| `MAX_UPLOAD_BYTES` | `536870912` | dataset upload cap (512 MiB) |
+| `DEFAULT_CURRENCY` | `INR` | used when a dataset has no currency column |
 | `AUTO_CREATE_TABLES` | — | `1` forces `create_all` on non-SQLite (dev only) |
 | `ML_MIN_ROC_AUC` / `ML_MIN_TEST_ROWS` | `0.55` / `200` | training quality gate; `0` disables |
 | `REDIS_URL` | `redis://localhost:6379/0` | only `/health` uses it |
-| `GEMINI_API_KEY` | — | optional real-LLM evaluation mode |
+| `GEMINI_API_KEY` | — | optional real-LLM evaluation mode (key sent as `x-goog-api-key` header) |
 
 ## Architecture
 
@@ -118,7 +126,13 @@ DatasetAnalysis.
   all tables from scratch; `create_all` runs only for SQLite (or `AUTO_CREATE_TABLES=1`).
 - **Auth.** `verify_api_key` guards `/events*`, `/cases/{id}/{advance,stop,execute,
   assess-risk,diagnose,predict-recovery,recommend-action,policy-check,verify}`,
-  `/human-review`, `/evaluation/run`. Tests override the dependency in conftest.
+  `/human-review`, `/evaluation/run`, and every mutating `/datasets/*` route
+  (`upload`, `analyze`, `ml-readiness`, `train`, `mapping`, `predict`,
+  `generate-cases`, `prune`, `sync` — via the router-level `_AUTH` dep). Read-only
+  GETs stay open. Tests override the dependency in conftest.
+- **HTTP hardening** lives in `api/security.py`: a stdlib sliding-window rate
+  limiter (middleware), a `check_startup_config()` insecure-default warning, and
+  the shared upload-size constant. Single-process only — swap for Redis at scale.
 
 ## Not yet done (see the roadmap)
 

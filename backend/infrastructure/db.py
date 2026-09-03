@@ -1,6 +1,7 @@
 import os
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Offline-first: default to a local SQLite file so the app runs with zero setup
 # and no external services. Point DATABASE_URL at Postgres for a real deployment
@@ -15,6 +16,7 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
 
 def get_db():
     db = SessionLocal()

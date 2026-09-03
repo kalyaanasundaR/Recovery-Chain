@@ -1,15 +1,8 @@
 import uuid
 from decimal import Decimal
-from datetime import datetime, timezone
-from typing import Optional
 
-from domain.models import (
-    RecoveryCase,
-    RecoveryOutcome,
-    RecoveryOutcomeStatus,
-    Money,
-    CaseState
-)
+from domain.models import CaseState, Money, RecoveryCase, RecoveryOutcome, RecoveryOutcomeStatus
+
 
 class IOutcomeVerification:
     def verify(self, case: RecoveryCase, external_reference: str) -> dict:
@@ -18,6 +11,7 @@ class IOutcomeVerification:
         Returns a dict with 'status' (RecoveryOutcomeStatus), 'amount' (float), and 'source' (str).
         """
         raise NotImplementedError
+
 
 class MockOutcomeVerificationAdapter(IOutcomeVerification):
     """SIMULATED settlement source.
@@ -39,11 +33,19 @@ class MockOutcomeVerificationAdapter(IOutcomeVerification):
         if "full" in ref:
             return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": amt, "source": src}
         if "partial" in ref:
-            return {"status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED, "amount": max(0.01, amt / 2), "source": src}
+            return {
+                "status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
+                "amount": max(0.01, amt / 2),
+                "source": src,
+            }
         if "fail" in ref:
             return {"status": RecoveryOutcomeStatus.NOT_RECOVERED, "amount": 0.0, "source": src}
         if "pending" in ref:
-            return {"status": RecoveryOutcomeStatus.PENDING_VERIFICATION, "amount": 0.0, "source": src}
+            return {
+                "status": RecoveryOutcomeStatus.PENDING_VERIFICATION,
+                "amount": 0.0,
+                "source": src,
+            }
 
         # A stable pseudo-random draw in [0, 1) for this case + execution.
         seed = f"{case.case_id}:{external_reference}"
@@ -53,22 +55,26 @@ class MockOutcomeVerificationAdapter(IOutcomeVerification):
         if case.prediction and case.prediction.recovery_probability is not None:
             p = max(0.0, min(1.0, float(case.prediction.recovery_probability)))
 
-        if u < p * 0.72:                       # the confident core of the estimate lands in full
+        if u < p * 0.72:  # the confident core of the estimate lands in full
             return {"status": RecoveryOutcomeStatus.FULLY_RECOVERED, "amount": amt, "source": src}
-        if u < p:                              # the tail of the estimate lands as a partial
+        if u < p:  # the tail of the estimate lands as a partial
             frac = 0.25 + 0.55 * (u / max(p, 1e-6))
-            return {"status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
-                    "amount": round(max(0.01, amt * frac), 2), "source": src}
+            return {
+                "status": RecoveryOutcomeStatus.PARTIALLY_RECOVERED,
+                "amount": round(max(0.01, amt * frac), 2),
+                "source": src,
+            }
         return {"status": RecoveryOutcomeStatus.NOT_RECOVERED, "amount": 0.0, "source": src}
+
 
 class VerificationEngine:
     def __init__(self, adapter: IOutcomeVerification = MockOutcomeVerificationAdapter()):
         self.adapter = adapter
-        
+
     def reconcile(self, case: RecoveryCase, external_reference: str) -> RecoveryOutcome:
         # 1. Ask authoritative source
         verification_data = self.adapter.verify(case, external_reference)
-        
+
         verified_amount = float(verification_data.get("amount", 0.0) or 0.0)
         source_status = verification_data.get("status", RecoveryOutcomeStatus.PENDING_VERIFICATION)
         source = verification_data.get("source", "UNKNOWN")
@@ -99,21 +105,23 @@ class VerificationEngine:
             final_status = RecoveryOutcomeStatus.NOT_RECOVERED
             verified_amount = 0.0
             reconciliation = "Confirmed failure from source"
-            
+
         execution_id = case.execution_record.execution_id if case.execution_record else None
-            
+
         return RecoveryOutcome(
             outcome_id=f"out_{uuid.uuid4().hex[:8]}",
             case_id=case.case_id,
             execution_id=execution_id,
             status=final_status,
             expected_amount=case.amount_at_risk,
-            actual_amount_recovered=Money(amount=Decimal(f"{verified_amount:.4f}"), currency=case.amount_at_risk.currency),
+            actual_amount_recovered=Money(
+                amount=Decimal(f"{verified_amount:.4f}"), currency=case.amount_at_risk.currency
+            ),
             verification_source=source,
             external_reference=external_reference,
-            reconciliation_status=reconciliation
+            reconciliation_status=reconciliation,
         )
-        
+
     def resolve_case_state(self, outcome_status: RecoveryOutcomeStatus) -> CaseState:
         if outcome_status == RecoveryOutcomeStatus.FULLY_RECOVERED:
             return CaseState.FULLY_RECOVERED
