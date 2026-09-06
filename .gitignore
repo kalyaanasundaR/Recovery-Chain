@@ -56,9 +56,10 @@ backend/*.csv
 .env.*.local
 backend/.env
 
-# ---- Editor / OS ----
+# ---- Editor / OS / local tooling ----
 .vscode/
 .idea/
+.claude/
 *.swp
 .DS_Store
 Thumbs.db

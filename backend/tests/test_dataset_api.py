@@ -136,6 +136,11 @@ def test_ml_readiness_api_billing(mock_upload_file):
     src_path = os.path.join("evaluation", "datasets", "billing_recovery_v3.csv")
     if not os.path.exists(src_path):
         pytest.skip("billing_recovery_v3.csv not found")
+    # This fixture is a ~334 MB Git LFS object. On a checkout that did not fetch
+    # LFS (CI runners don't, by default) it is a ~130-byte text pointer rather
+    # than the real CSV -- there is nothing to profile, so treat it as absent.
+    if os.path.getsize(src_path) < 100_000:
+        pytest.skip("billing_recovery_v3.csv is an unfetched Git LFS pointer, not the dataset")
 
     with open(src_path, "rb") as f:
         up_res = client.post("/datasets/upload", files={"file": (fname, f, "text/csv")})
