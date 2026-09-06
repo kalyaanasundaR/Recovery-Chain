@@ -139,23 +139,29 @@ def test_ml_readiness_api_billing(mock_upload_file):
 
     with open(src_path, "rb") as f:
         up_res = client.post("/datasets/upload", files={"file": (fname, f, "text/csv")})
+    assert up_res.status_code == 200
     ds_id = up_res.json()["dataset_id"]
 
     # Analyze first
-    client.post(f"/datasets/{ds_id}/analyze")
+    assert client.post(f"/datasets/{ds_id}/analyze").status_code == 200
 
     ds_res = client.get(f"/datasets/{ds_id}").json()
+    # Drive the mapping the way a reviewer would: assign only the roles this
+    # dataset needs and leave every other column unused. Echoing the auto-detected
+    # canonical_field back verbatim makes the test hostage to detection heuristics
+    # that legitimately shift across pandas / numpy versions -- e.g. a stray
+    # second column picked up as AMOUNT trips the single-use validator and 400s
+    # the mapping. `target_recovered` is left unused on purpose: the readiness
+    # analyzer still finds it by name.
+    roles = {
+        "subscriber_id": "CUSTOMER_ID",
+        "year_month": "TIMESTAMP",
+        "bill_amount_excl_late": "AMOUNT",
+    }
     mappings = []
     for sig in ds_res.get("recoverchain_signals", []):
         col = sig["original_column"]
-        cf = sig["canonical_field"]
-        if col == "bill_amount_excl_late":
-            cf = "AMOUNT"
-        if col == "prior_ontime":
-            cf = "UNKNOWN"
-        if col == "year_month":
-            cf = "TIMESTAMP"
-
+        cf = roles.get(col, "UNKNOWN")
         mappings.append(
             {
                 "original_column": col,
@@ -163,11 +169,12 @@ def test_ml_readiness_api_billing(mock_upload_file):
                 "action": "confirm" if cf != "UNKNOWN" else "unused",
             }
         )
-    client.post(f"/datasets/{ds_id}/mapping", json={"mappings": mappings})
+    map_res = client.post(f"/datasets/{ds_id}/mapping", json={"mappings": mappings})
+    assert map_res.status_code == 200, map_res.text
 
     # ML Readiness
     ml_res = client.post(f"/datasets/{ds_id}/ml-readiness")
-    assert ml_res.status_code == 200
+    assert ml_res.status_code == 200, ml_res.text
     spec = ml_res.json()
 
     assert spec["prediction_problem"] == "payment-failure-risk"
