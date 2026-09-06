@@ -7,7 +7,7 @@ It fundamentally enforces the boundary that **Execution Success does not equal F
 ## 2. Core Architectural Principle (IMPLEMENTED)
 Enforced boundary:
 `Execution Record (COMPLETED_SIMULATED) → PENDING_VERIFICATION → Verification Adapter (Query Authoritative Source) → FULLY_RECOVERED`
-An AI/Agent can never declare a transaction recovered.
+No upstream component may declare a transaction recovered on its own.
 
 ## 3. Financial Invariants (IMPLEMENTED & VERIFIED)
 - **INVARIANT 1 & 2:** `ActualAmountRecovered` is derived strictly from the Verification Adapter, never from the agent's expected probability or action recommendation.
