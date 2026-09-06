@@ -123,3 +123,11 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_datasets_dataset_id'), table_name='datasets')
     op.drop_table('datasets')
     # ### end Alembic commands ###
+
+    # Postgres creates a native TYPE for every Enum column; drop_table leaves
+    # those types behind, so a subsequent `upgrade head` fails with
+    # "type ... already exists". Drop them explicitly. No-op on SQLite, which
+    # has no enum types.
+    bind = op.get_bind()
+    for _enum_name in ('casestate', 'riskcategory', 'datasetstatus'):
+        sa.Enum(name=_enum_name).drop(bind, checkfirst=True)
