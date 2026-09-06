@@ -22,7 +22,7 @@ The graph routes `RecoveryCase`s to the appropriate specialist agent natively ba
 - `receivables_agent` for `OVERDUE_INVOICE`
 - `promise_agent` for `BROKEN_PROMISE`
 
-*Note: Due to an aggressive Windows Application Control DLL load block on `xxhash` (a deep dependency of `langchain_core` via `langsmith`), `langgraph` could not be loaded into the runtime. In strict compliance with the directive to not bypass or fake systems, a standalone `StateGraph` mockup was implemented natively mirroring the LangGraph state machine API. This fulfills the exact architectural routing requirements without violating local environmental limits.*
+*Note: Due to an aggressive Windows Application Control DLL load block on `xxhash` (a deep dependency of `langchain_core` via `langsmith`), `langgraph` could not be loaded into the runtime. Rather than bypass or fake the routing, a standalone `StateGraph` shim was implemented natively, mirroring the LangGraph state machine API. This fulfills the exact architectural routing requirements without violating local environmental limits.*
 
 ## 4. Experiment Modes [IMPLEMENTED]
 The `AblationConfig` model allows running evaluation scenarios across 4 comparative modes:
@@ -38,7 +38,7 @@ To test against Prompt Injections (e.g., an LLM hallucinating permissions to cir
 - **Policy Bypass Rate = 0.0%**
 
 ## 6. Simulated LLM Adapter [SIMULATED]
-No active OpenAI/Anthropic credentials were provided in the environment. A `SimulatedLLMAdapter` was implemented that fulfills the exact schema requirements and injects a 200ms sleep delay to simulate `llm_latency_ms`. It accurately demonstrates the pipeline capabilities while transparently marking all output logic as mock structures.
+No active hosted-LLM credentials were provided in the environment. A `SimulatedLLMAdapter` was implemented that fulfills the exact schema requirements and injects a 200ms sleep delay to simulate `llm_latency_ms`. It accurately demonstrates the pipeline capabilities while transparently marking all output logic as mock structures.
 
 ## 7. Comparative Evaluation & Exact Test Results
 The Phase 12A benchmark scenarios were run through the Phase 13 LLM architecture. All 94 cumulative tests passed natively (`test_llm.py` added 4 new architectural proofs).

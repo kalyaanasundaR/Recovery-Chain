@@ -21,8 +21,8 @@ dataset rows through the case pipeline.
 - Execution is **simulated** (`MockExecutionAdapter`) — no live payment/comms APIs.
 - Post-outcome ("leakage") columns are detected and excluded from ML features.
 
-See [CLAUDE.md](CLAUDE.md) for the architecture map and
-[docs/history/](docs/history/) for the phase-by-phase build log.
+See [docs/PROJECT_REPORT.md](docs/PROJECT_REPORT.md) for the architecture map and
+[docs/history/](docs/history/) for the design notes kept per iteration.
 
 ---
 

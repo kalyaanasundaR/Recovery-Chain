@@ -7,7 +7,7 @@ from domain.models import ActionType, RecoveryCase, RiskCategory, RootCauseCateg
 class SimulatedLLMAdapter:
     """
     SIMULATED LLM Provider.
-    Does not make real network calls to OpenAI/Anthropic.
+    Does not make real network calls to any hosted LLM API.
     Fakes structured JSON generation for evaluation purposes.
     """
 
